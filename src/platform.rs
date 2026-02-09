@@ -2,26 +2,28 @@ mod app_menu;
 mod keyboard;
 mod keystroke;
 
-#[cfg(any(target_os = "linux", target_os = "freebsd"))]
-mod linux;
+// #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+// mod linux;
 
-#[cfg(target_os = "macos")]
-mod mac;
+// #[cfg(target_os = "macos")]
+// mod mac;
 
-#[cfg(any(
-    all(
-        any(target_os = "linux", target_os = "freebsd"),
-        any(feature = "x11", feature = "wayland")
-    ),
-    all(target_os = "macos", feature = "macos-blade")
-))]
-mod blade;
+// #[cfg(any(
+//     all(
+//         any(target_os = "linux", target_os = "freebsd"),
+//         any(feature = "x11", feature = "wayland")
+//     ),
+//     all(target_os = "macos", feature = "macos-blade")
+// ))]
+// mod blade;
 
 #[cfg(any(test, feature = "test-support"))]
 mod test;
 
-#[cfg(target_os = "windows")]
-mod windows;
+// #[cfg(target_os = "windows")]
+// mod windows;
+
+mod cross;
 
 #[cfg(all(
     feature = "screen-capture",
@@ -73,95 +75,100 @@ pub use app_menu::*;
 pub use keyboard::*;
 pub use keystroke::*;
 
-#[cfg(any(target_os = "linux", target_os = "freebsd"))]
-pub(crate) use linux::*;
-#[cfg(target_os = "macos")]
-pub(crate) use mac::*;
+// #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+// pub(crate) use linux::*;
+// #[cfg(target_os = "macos")]
+// pub(crate) use mac::*;
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) use test::*;
-#[cfg(target_os = "windows")]
-pub(crate) use windows::*;
+// #[cfg(target_os = "windows")]
+// pub(crate) use windows::*;
 
-#[cfg(all(target_os = "linux", feature = "wayland"))]
-pub use linux::layer_shell;
+// #[cfg(all(target_os = "linux", feature = "wayland"))]
+// pub use linux::layer_shell;
 
 #[cfg(any(test, feature = "test-support"))]
-pub use test::{TestDispatcher, TestScreenCaptureSource, TestScreenCaptureStream};
+pub use test::TestDispatcher;
 
 /// Returns a background executor for the current platform.
 pub fn background_executor() -> BackgroundExecutor {
     current_platform(true).background_executor()
 }
 
-#[cfg(target_os = "macos")]
 pub(crate) fn current_platform(headless: bool) -> Rc<dyn Platform> {
-    Rc::new(MacPlatform::new(headless))
+    // TODO(mdeand): Monomorphize Platform and its associated types.
+    todo!()
 }
 
-#[cfg(any(target_os = "linux", target_os = "freebsd"))]
-pub(crate) fn current_platform(headless: bool) -> Rc<dyn Platform> {
-    #[cfg(feature = "x11")]
-    use anyhow::Context as _;
+// #[cfg(target_os = "macos")]
+// pub(crate) fn current_platform(headless: bool) -> Rc<dyn Platform> {
+//     Rc::new(MacPlatform::new(headless))
+// }
 
-    if headless {
-        return Rc::new(HeadlessClient::new());
-    }
+// #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+// pub(crate) fn current_platform(headless: bool) -> Rc<dyn Platform> {
+//     #[cfg(feature = "x11")]
+//     use anyhow::Context as _;
 
-    match guess_compositor() {
-        #[cfg(feature = "wayland")]
-        "Wayland" => Rc::new(WaylandClient::new()),
+//     if headless {
+//         return Rc::new(HeadlessClient::new());
+//     }
 
-        #[cfg(feature = "x11")]
-        "X11" => Rc::new(
-            X11Client::new()
-                .context("Failed to initialize X11 client.")
-                .unwrap(),
-        ),
+//     match guess_compositor() {
+//         #[cfg(feature = "wayland")]
+//         "Wayland" => Rc::new(WaylandClient::new()),
 
-        "Headless" => Rc::new(HeadlessClient::new()),
-        _ => unreachable!(),
-    }
-}
+//         #[cfg(feature = "x11")]
+//         "X11" => Rc::new(
+//             X11Client::new()
+//                 .context("Failed to initialize X11 client.")
+//                 .unwrap(),
+//         ),
 
-#[cfg(target_os = "windows")]
-pub(crate) fn current_platform(_headless: bool) -> Rc<dyn Platform> {
-    Rc::new(
-        WindowsPlatform::new()
-            .inspect_err(|err| show_error("Failed to launch", err.to_string()))
-            .unwrap(),
-    )
-}
+//         "Headless" => Rc::new(HeadlessClient::new()),
+//         _ => unreachable!(),
+//     }
+// }
 
-/// Return which compositor we're guessing we'll use.
-/// Does not attempt to connect to the given compositor
-#[cfg(any(target_os = "linux", target_os = "freebsd"))]
-#[inline]
-pub fn guess_compositor() -> &'static str {
-    if std::env::var_os("ZED_HEADLESS").is_some() {
-        return "Headless";
-    }
+// #[cfg(target_os = "windows")]
+// pub(crate) fn current_platform(_headless: bool) -> Rc<dyn Platform> {
+//     Rc::new(
+//         WindowsPlatform::new()
+//             .inspect_err(|err| show_error("Failed to launch", err.to_string()))
+//             .unwrap(),
+//     )
+// }
 
-    #[cfg(feature = "wayland")]
-    let wayland_display = std::env::var_os("WAYLAND_DISPLAY");
-    #[cfg(not(feature = "wayland"))]
-    let wayland_display: Option<std::ffi::OsString> = None;
+// /// Return which compositor we're guessing we'll use.
+// /// Does not attempt to connect to the given compositor
+// #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+// #[inline]
+// pub fn guess_compositor() -> &'static str {
+//     if std::env::var_os("ZED_HEADLESS").is_some() {
+//         return "Headless";
+//     }
 
-    #[cfg(feature = "x11")]
-    let x11_display = std::env::var_os("DISPLAY");
-    #[cfg(not(feature = "x11"))]
-    let x11_display: Option<std::ffi::OsString> = None;
+//     #[cfg(feature = "wayland")]
+//     let wayland_display = std::env::var_os("WAYLAND_DISPLAY");
+//     #[cfg(not(feature = "wayland"))]
+//     let wayland_display: Option<std::ffi::OsString> = None;
 
-    let use_wayland = wayland_display.is_some_and(|display| !display.is_empty());
-    let use_x11 = x11_display.is_some_and(|display| !display.is_empty());
+//     #[cfg(feature = "x11")]
+//     let x11_display = std::env::var_os("DISPLAY");
+//     #[cfg(not(feature = "x11"))]
+//     let x11_display: Option<std::ffi::OsString> = None;
 
-    if use_wayland {
-        "Wayland"
-    } else if use_x11 {
-        "X11"
-    } else {
-        "Headless"
-    }
-}
+//     let use_wayland = wayland_display.is_some_and(|display| !display.is_empty());
+//     let use_x11 = x11_display.is_some_and(|display| !display.is_empty());
+
+//     if use_wayland {
+//         "Wayland"
+//     } else if use_x11 {
+//         "X11"
+//     } else {
+//         "Headless"
+//     }
+// }
 
 pub(crate) trait Platform: 'static {
     fn background_executor(&self) -> BackgroundExecutor;
@@ -181,28 +188,6 @@ pub(crate) trait Platform: 'static {
     fn active_window(&self) -> Option<AnyWindowHandle>;
     fn window_stack(&self) -> Option<Vec<AnyWindowHandle>> {
         None
-    }
-
-    #[cfg(feature = "screen-capture")]
-    fn is_screen_capture_supported(&self) -> bool;
-    #[cfg(not(feature = "screen-capture"))]
-    fn is_screen_capture_supported(&self) -> bool {
-        false
-    }
-    #[cfg(feature = "screen-capture")]
-    fn screen_capture_sources(&self)
-    -> oneshot::Receiver<Result<Vec<Rc<dyn ScreenCaptureSource>>>>;
-    #[cfg(not(feature = "screen-capture"))]
-    fn screen_capture_sources(
-        &self,
-    ) -> oneshot::Receiver<anyhow::Result<Vec<Rc<dyn ScreenCaptureSource>>>> {
-        let (sources_tx, sources_rx) = oneshot::channel();
-        sources_tx
-            .send(Err(anyhow::anyhow!(
-                "gpui was compiled without the screen-capture feature"
-            )))
-            .ok();
-        sources_rx
     }
 
     fn open_window(
@@ -321,29 +306,6 @@ pub struct SourceMetadata {
     /// Video resolution of this source.
     pub resolution: Size<DevicePixels>,
 }
-
-/// A source of on-screen video content that can be captured.
-pub trait ScreenCaptureSource {
-    /// Returns metadata for this source.
-    fn metadata(&self) -> Result<SourceMetadata>;
-
-    /// Start capture video from this source, invoking the given callback
-    /// with each frame.
-    fn stream(
-        &self,
-        foreground_executor: &ForegroundExecutor,
-        frame_callback: Box<dyn Fn(ScreenCaptureFrame) + Send>,
-    ) -> oneshot::Receiver<Result<Box<dyn ScreenCaptureStream>>>;
-}
-
-/// A video stream captured from a screen.
-pub trait ScreenCaptureStream {
-    /// Returns metadata for this source.
-    fn metadata(&self) -> Result<SourceMetadata>;
-}
-
-/// A frame of video captured from a screen.
-pub struct ScreenCaptureFrame(pub PlatformScreenCaptureFrame);
 
 /// An opaque identifier for a hardware display
 #[derive(PartialEq, Eq, Hash, Copy, Clone)]
@@ -1343,11 +1305,6 @@ pub enum WindowKind {
 
     /// A floating window that appears on top of its parent window
     Floating,
-
-    /// A Wayland LayerShell window, used to draw overlays or backgrounds for applications such as
-    /// docks, notifications or wallpapers.
-    #[cfg(all(target_os = "linux", feature = "wayland"))]
-    LayerShell(layer_shell::LayerShellOptions),
 }
 
 /// The appearance of the window, as defined by the operating system.
