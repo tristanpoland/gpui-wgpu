@@ -78,6 +78,10 @@ path = "src/gpui.rs"
 doctest = false
 
 [dependencies]
+pollster = "0.4.0"
+winit = "0.30.12"
+wgpu = { version = "25" }
+priority-threadpool = { git = "https://github.com/mdeand/priority-threadpool" }
 anyhow = "1.0.86"
 async-task = "4.7"
 backtrace = { version = "0.3", optional = true }

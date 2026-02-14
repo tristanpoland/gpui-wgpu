@@ -11,6 +11,16 @@ pub struct Dispatcher {
     threadpool: ThreadPool<Priority>,
 }
 
+impl Dispatcher {
+    pub fn new(main_tx: PriorityQueueSender<RunnableVariant>) -> Self {
+        Self {
+            main_thread_id: std::thread::current().id(),
+            main_tx,
+            threadpool: ThreadPool::new(num_cpus::get() * 8),
+        }
+    }
+}
+
 impl PlatformDispatcher for Dispatcher {
     fn get_all_timings(&self) -> Vec<crate::ThreadTaskTimings> {
         let global_thread_timings = GLOBAL_THREAD_TIMINGS.lock();

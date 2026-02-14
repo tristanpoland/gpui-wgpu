@@ -37,6 +37,7 @@ mod cross;
 ))]
 pub(crate) mod scap_screen_capture;
 
+use crate::platform::cross::platform::CrossPlatform;
 use crate::{
     Action, AnyWindowHandle, App, AsyncWindowContext, BackgroundExecutor, Bounds,
     DEFAULT_WINDOW_SIZE, DevicePixels, DispatchEventResult, Font, FontId, FontMetrics, FontRun,
@@ -95,9 +96,10 @@ pub fn background_executor() -> BackgroundExecutor {
     current_platform(true).background_executor()
 }
 
-pub(crate) fn current_platform(headless: bool) -> Rc<dyn Platform> {
+pub(crate) fn current_platform(_headless: bool) -> Rc<dyn Platform> {
+    // TODO(mdeand): Support headless
     // TODO(mdeand): Monomorphize Platform and its associated types.
-    todo!()
+    Rc::new(CrossPlatform::new().expect("Failed to initialize platform"))
 }
 
 // #[cfg(target_os = "macos")]
