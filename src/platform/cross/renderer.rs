@@ -1192,6 +1192,16 @@ impl WgpuRenderer {
 
         let surface_capabilities = surface.get_capabilities(&context.adapter);
 
+        // NOTE(mdeand): The shaders (hsla_to_rgba) output sRGB values directly, so we need a
+        // NOTE(mdeand): non-sRGB surface format to avoid a double linear-to-sRGB conversion.
+        // NOTE(mdeand): Prefer a non-sRGB format; fall back to whatever is available.
+        let format = surface_capabilities
+            .formats
+            .iter()
+            .find(|f| !f.is_srgb())
+            .copied()
+            .unwrap_or(surface_capabilities.formats[0]);
+
         let alpha_mode = if surface_capabilities
             .alpha_modes
             .contains(&wgpu::CompositeAlphaMode::PreMultiplied)
@@ -1203,7 +1213,7 @@ impl WgpuRenderer {
 
         let surface_configuration = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: surface_capabilities.formats[0],
+            format,
             width,
             height,
             present_mode: wgpu::PresentMode::Fifo,
