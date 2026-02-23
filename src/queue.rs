@@ -3,9 +3,7 @@ use std::{
     iter::FusedIterator,
     sync::{Arc, atomic::AtomicUsize},
 };
-
 use rand::{Rng, SeedableRng, rngs::SmallRng};
-
 use crate::Priority;
 
 struct PriorityQueues<T> {

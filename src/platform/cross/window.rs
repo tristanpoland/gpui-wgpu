@@ -1,5 +1,3 @@
-use raw_window_handle::HasDisplayHandle;
-
 use crate::{
     Bounds, Capslock, Modifiers, Pixels, PlatformWindow, Point, Size, WindowAppearance,
     WindowBackgroundAppearance, WindowBounds,
@@ -7,8 +5,6 @@ use crate::{
 };
 use std::{
     cell::{Cell, OnceCell, RefCell},
-    mem::MaybeUninit,
-    rc::Rc,
     sync::Arc,
 };
 
@@ -44,7 +40,18 @@ pub(crate) struct Callbacks {
     pub(crate) on_appearance_changed: Cell<Option<Box<dyn FnMut()>>>,
 }
 
-impl CrossWindow {}
+impl Callbacks {
+    pub(crate) fn invoke_mut<F: ?Sized>(
+        &self,
+        cell: &Cell<Option<Box<F>>>,
+        f: impl FnOnce(&mut F),
+    ) {
+        if let Some(mut cb) = cell.take() {
+            f(&mut cb);
+            cell.set(Some(cb));
+        }
+    }
+}
 
 impl CrossWindow {
     pub(crate) fn new(wgpu_context: Arc<WgpuContext>) -> Self {
@@ -185,12 +192,12 @@ impl PlatformWindow for CrossWindow {
 
     fn prompt(
         &self,
-        level: crate::PromptLevel,
-        msg: &str,
-        detail: Option<&str>,
-        answers: &[crate::PromptButton],
+        _level: crate::PromptLevel,
+        _msg: &str,
+        _detail: Option<&str>,
+        _answers: &[crate::PromptButton],
     ) -> Option<futures::channel::oneshot::Receiver<usize>> {
-        todo!()
+        None
     }
 
     fn activate(&self) {
@@ -308,9 +315,7 @@ impl PlatformWindow for CrossWindow {
         None
     }
 
-    fn update_ime_position(&self, _bounds: crate::Bounds<crate::Pixels>) {
-        todo!()
-    }
+    fn update_ime_position(&self, _bounds: crate::Bounds<crate::Pixels>) {}
 }
 
 impl raw_window_handle::HasDisplayHandle for CrossWindow {

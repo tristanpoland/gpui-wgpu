@@ -4,19 +4,29 @@ use crate::{
 };
 use priority_threadpool::ThreadPool;
 use std::thread::ThreadId;
+use winit::event_loop::EventLoopProxy;
+
+pub enum CrossEvent {
+    WakeUp,
+}
 
 pub struct Dispatcher {
     main_thread_id: ThreadId,
     main_tx: PriorityQueueSender<RunnableVariant>,
     threadpool: ThreadPool<Priority>,
+    proxy: EventLoopProxy<CrossEvent>,
 }
 
 impl Dispatcher {
-    pub fn new(main_tx: PriorityQueueSender<RunnableVariant>) -> Self {
+    pub fn new(
+        main_tx: PriorityQueueSender<RunnableVariant>,
+        proxy: EventLoopProxy<CrossEvent>,
+    ) -> Self {
         Self {
             main_thread_id: std::thread::current().id(),
             main_tx,
             threadpool: ThreadPool::new(num_cpus::get() * 8),
+            proxy,
         }
     }
 }
@@ -64,9 +74,10 @@ impl PlatformDispatcher for Dispatcher {
 
     fn dispatch_on_main_thread(&self, runnable: RunnableVariant, priority: Priority) {
         match self.main_tx.send(priority, runnable) {
-            Ok(_) => {}
+            Ok(_) => {
+                let _ = self.proxy.send_event(CrossEvent::WakeUp);
+            }
             Err(runnable) => {
-                // TODO(mdeand): Comment - Why do we forget this?
                 std::mem::forget(runnable);
             }
         }
