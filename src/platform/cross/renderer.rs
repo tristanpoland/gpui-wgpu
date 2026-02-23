@@ -560,10 +560,12 @@ impl MonochromeSprite {
     };
 }
 
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 #[repr(C)]
 struct ColorAdjustments {
     gamma_ratios: [f32; 4],
     grayscale_enhanced_contrast: f32,
+    _padding: [f32; 3],
 }
 
 struct WgpuPipelines {
@@ -734,13 +736,13 @@ impl WgpuPipelines {
                                 view_dimension: wgpu::TextureViewDimension::D2,
                                 multisampled: false,
                             },
-                            count: Some(std::num::NonZeroU32::new(1).unwrap()),
+                            count: None,
                         },
                         wgpu::BindGroupLayoutEntry {
                             binding: 1,
                             visibility: wgpu::ShaderStages::FRAGMENT,
                             ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                            count: Some(std::num::NonZeroU32::new(1).unwrap()),
+                            count: None,
                         },
                     ],
                 });
@@ -784,7 +786,7 @@ impl WgpuPipelines {
                             has_dynamic_offset: false,
                             min_binding_size: None,
                         },
-                        count: Some(std::num::NonZero::new(1).unwrap()),
+                        count: None,
                     }],
                 });
 
@@ -903,12 +905,7 @@ impl WgpuPipelines {
                         module: &mono_sprite_shader,
                         entry_point: Some("vs_mono_sprite"),
                         compilation_options: wgpu::PipelineCompilationOptions::default(),
-                        buffers: &[wgpu::VertexBufferLayout {
-                            array_stride: std::mem::size_of::<MonochromeSprite>()
-                                as wgpu::BufferAddress,
-                            step_mode: wgpu::VertexStepMode::Vertex,
-                            attributes: MonochromeSprite::VERTEX_ATTRIBUTES,
-                        }],
+                        buffers: &[],
                     },
                     primitive: wgpu::PrimitiveState {
                         topology: wgpu::PrimitiveTopology::TriangleStrip,
@@ -1138,6 +1135,34 @@ struct RenderingParameters {
     grayscale_enhanced_contrast: f32,
 }
 
+impl RenderingParameters {
+    fn from_env() -> Self {
+        use std::env;
+
+        let path_sample_count = env::var("ZED_PATH_SAMPLE_COUNT")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(4);
+        let gamma = env::var("ZED_FONTS_GAMMA")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(1.8_f32)
+            .clamp(1.0, 2.2);
+        let gamma_ratios = crate::platform::get_gamma_correction_ratios(gamma);
+        let grayscale_enhanced_contrast = env::var("ZED_FONTS_GRAYSCALE_ENHANCED_CONTRAST")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(1.0_f32)
+            .max(0.0);
+
+        Self {
+            path_sample_count,
+            gamma_ratios,
+            grayscale_enhanced_contrast,
+        }
+    }
+}
+
 pub struct WgpuRenderer {
     context: Arc<WgpuContext>,
     surface: wgpu::Surface<'static>,
@@ -1145,12 +1170,14 @@ pub struct WgpuRenderer {
     atlas_sampler: wgpu::Sampler,
     atlas: Arc<WgpuAtlas>,
     pipelines: WgpuPipelines,
+    rendering_parameters: RenderingParameters,
 }
 
 impl WgpuRenderer {
     pub fn new<WindowHandle>(
         context: Arc<WgpuContext>,
         window: WindowHandle,
+        atlas: Arc<WgpuAtlas>,
         width: u32,
         height: u32,
         path_sample_count: u32,
@@ -1193,9 +1220,10 @@ impl WgpuRenderer {
             context: context.clone(),
             surface,
             surface_configuration,
-            atlas: Arc::new(WgpuAtlas::new(context)),
+            atlas,
             atlas_sampler,
             pipelines,
+            rendering_parameters: RenderingParameters::from_env(),
         })
     }
 
@@ -1206,6 +1234,19 @@ impl WgpuRenderer {
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("main"),
                 });
+
+        self.atlas.before_frame(&mut command_encoder);
+
+        let color_adjustments = ColorAdjustments {
+            gamma_ratios: self.rendering_parameters.gamma_ratios,
+            grayscale_enhanced_contrast: self.rendering_parameters.grayscale_enhanced_contrast,
+            _padding: [0.0; 3],
+        };
+        self.context.queue.write_buffer(
+            &self.context.color_adjustments_buffer,
+            0,
+            bytemuck::bytes_of(&color_adjustments),
+        );
 
         let surface_texture = self
             .surface
@@ -1288,70 +1329,66 @@ impl WgpuRenderer {
                     PrimitiveBatch::MonochromeSprites {
                         texture_id,
                         sprites,
-                    } => { /*
+                    } => {
                         let tex_info = self.atlas.get_texture_info(texture_id);
 
                         let mono_sprites_bind_group =
-                        self.context
-                        .device
-                        .create_bind_group(&wgpu::BindGroupDescriptor {
-                        label: Some("Mono sprites bind group"),
-                        layout: &self.pipelines.mono_sprites_bind_group_layout,
-                        entries: &[wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::Buffer(
-                        wgpu::BufferBinding {
-                        buffer: &self.context.mono_sprites_buffer,
-                        offset: 0,
-                        size: None,
-                        },
-                        ),
-                        }],
-                        });
+                            self.context
+                                .device
+                                .create_bind_group(&wgpu::BindGroupDescriptor {
+                                    label: Some("mono_sprites_bind_group"),
+                                    layout: &self.pipelines.mono_sprites_bind_group_layout,
+                                    entries: &[wgpu::BindGroupEntry {
+                                        binding: 0,
+                                        resource: wgpu::BindingResource::Buffer(
+                                            wgpu::BufferBinding {
+                                                buffer: &self.context.mono_sprites_buffer,
+                                                offset: 0,
+                                                size: None,
+                                            },
+                                        ),
+                                    }],
+                                });
 
                         let sprites_bind_group =
-                        self.context
-                        .device
-                        .create_bind_group(&wgpu::BindGroupDescriptor {
-                        label: Some("sprite_bind_group"),
-                        layout: &self.pipelines.sprites_bind_group_layout,
-                        entries: &[
-                        wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(
-                        &tex_info.raw_view,
-                        ),
-                        },
-                        wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(
-                        &self.atlas_sampler,
-                        ),
-                        },
-                        ],
-                        });
+                            self.context
+                                .device
+                                .create_bind_group(&wgpu::BindGroupDescriptor {
+                                    label: Some("sprites_bind_group"),
+                                    layout: &self.pipelines.sprites_bind_group_layout,
+                                    entries: &[
+                                        wgpu::BindGroupEntry {
+                                            binding: 0,
+                                            resource: wgpu::BindingResource::TextureView(
+                                                &tex_info.raw_view,
+                                            ),
+                                        },
+                                        wgpu::BindGroupEntry {
+                                            binding: 1,
+                                            resource: wgpu::BindingResource::Sampler(
+                                                &self.atlas_sampler,
+                                            ),
+                                        },
+                                    ],
+                                });
 
                         self.context.queue.write_buffer(
-                        &self.context.mono_sprites_buffer,
-                        0,
-                        unsafe {
-                        std::slice::from_raw_parts(
-                        sprites.as_ptr() as *const u8,
-                        sprites.len() * std::mem::size_of::<MonochromeSprite>(),
-                        )
-                        },
+                            &self.context.mono_sprites_buffer,
+                            0,
+                            unsafe {
+                                std::slice::from_raw_parts(
+                                    sprites.as_ptr() as *const u8,
+                                    sprites.len() * std::mem::size_of::<MonochromeSprite>(),
+                                )
+                            },
                         );
 
                         pass.set_pipeline(&self.pipelines.mono_sprites_pipeline);
-
                         pass.set_bind_group(0, &self.pipelines.globals_bind_group, &[]);
                         pass.set_bind_group(1, &self.pipelines.color_adjustments_bind_group, &[]);
                         pass.set_bind_group(2, &sprites_bind_group, &[]);
                         pass.set_bind_group(3, &mono_sprites_bind_group, &[]);
-
-                        pass.set_vertex_buffer(0, self.context.mono_sprites_buffer.slice(..));
                         pass.draw(0..4, 0..sprites.len() as u32);
-                         */
                     }
                     PrimitiveBatch::PolychromeSprites {
                         texture_id,

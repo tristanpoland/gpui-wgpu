@@ -76,6 +76,7 @@ impl CrossWindow {
             let renderer = WgpuRenderer::new(
                 self.0.wgpu_context.clone(),
                 self.window(),
+                self.0.sprite_atlas.clone(),
                 initial_size.width,
                 initial_size.height,
                 4,

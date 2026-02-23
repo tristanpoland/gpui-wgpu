@@ -234,7 +234,27 @@ impl WgpuAtlasState {
         bounds: Bounds<DevicePixels>,
         bytes: &[u8],
     ) {
-        // TODO(mdeand): Use StagingBelt
+        let texture = &self.storage[texture_id];
+        let bytes_per_pixel = texture.bytes_per_pixel();
+        let unpadded_bytes_per_row = bounds.size.width.to_bytes(bytes_per_pixel) as usize;
+        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT as usize;
+        let padded_bytes_per_row = (unpadded_bytes_per_row + align - 1) / align * align;
+        let height = bounds.size.height.0 as usize;
+
+        let padded_data = if padded_bytes_per_row != unpadded_bytes_per_row {
+            let mut padded = vec![0u8; padded_bytes_per_row * height];
+            for row in 0..height {
+                let src_start = row * unpadded_bytes_per_row;
+                let dst_start = row * padded_bytes_per_row;
+                padded[dst_start..dst_start + unpadded_bytes_per_row]
+                    .copy_from_slice(&bytes[src_start..src_start + unpadded_bytes_per_row]);
+            }
+            Some(padded)
+        } else {
+            None
+        };
+
+        let contents = padded_data.as_deref().unwrap_or(bytes);
 
         let buffer = self
             .context
@@ -242,16 +262,15 @@ impl WgpuAtlasState {
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: None,
                 usage: wgpu::BufferUsages::COPY_SRC,
-                contents: bytes,
+                contents,
             });
-
-        // TODO(mdeand): We're using offsets (temporarily) given BufferSlices require a lifetime.
 
         self.uploads.push(PendingUpload {
             texture_id,
             bounds,
             buffer,
             offset: 0,
+            padded_bytes_per_row: padded_bytes_per_row as u32,
         })
     }
 
@@ -270,9 +289,7 @@ impl WgpuAtlasState {
                     buffer: &upload.buffer,
                     layout: wgpu::TexelCopyBufferLayout {
                         offset: upload.offset,
-                        bytes_per_row: Some(
-                            upload.bounds.size.width.to_bytes(texture.bytes_per_pixel()),
-                        ),
+                        bytes_per_row: Some(upload.padded_bytes_per_row),
                         rows_per_image: None,
                     },
                 },
@@ -394,6 +411,7 @@ struct PendingUpload {
     bounds: Bounds<DevicePixels>,
     buffer: wgpu::Buffer,
     offset: u64,
+    padded_bytes_per_row: u32,
 }
 
 impl From<Size<DevicePixels>> for etagere::Size {
