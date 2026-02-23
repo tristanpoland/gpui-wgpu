@@ -760,7 +760,7 @@ impl WgpuPipelines {
                             has_dynamic_offset: false,
                             min_binding_size: None,
                         },
-                        count: Some(std::num::NonZero::new(1).unwrap()),
+                        count: None,
                     }],
                 });
 
@@ -874,11 +874,7 @@ impl WgpuPipelines {
                         module: &quads_shader,
                         entry_point: Some("vs_quad"),
                         compilation_options: wgpu::PipelineCompilationOptions::default(),
-                        buffers: &[wgpu::VertexBufferLayout {
-                            array_stride: std::mem::size_of::<Quad>() as wgpu::BufferAddress,
-                            step_mode: wgpu::VertexStepMode::Vertex,
-                            attributes: Quad::VERTEX_ATTRIBUTES,
-                        }],
+                        buffers: &[],
                     },
                     primitive: wgpu::PrimitiveState {
                         topology: wgpu::PrimitiveTopology::TriangleStrip,
@@ -1194,13 +1190,24 @@ impl WgpuRenderer {
                 })?
         };
 
+        let surface_capabilities = surface.get_capabilities(&context.adapter);
+
+        let alpha_mode = if surface_capabilities
+            .alpha_modes
+            .contains(&wgpu::CompositeAlphaMode::PreMultiplied)
+        {
+            wgpu::CompositeAlphaMode::PreMultiplied
+        } else {
+            surface_capabilities.alpha_modes[0]
+        };
+
         let surface_configuration = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: surface.get_capabilities(&context.adapter).formats[0],
+            format: surface_capabilities.formats[0],
             width,
             height,
             present_mode: wgpu::PresentMode::Fifo,
-            alpha_mode: wgpu::CompositeAlphaMode::PreMultiplied,
+            alpha_mode,
             view_formats: vec![],
             // TODO(mdeand): Make this configurable?
             desired_maximum_frame_latency: 2,
@@ -1322,7 +1329,6 @@ impl WgpuRenderer {
                         pass.set_pipeline(&self.pipelines.quads_pipeline);
                         pass.set_bind_group(0, &self.pipelines.globals_bind_group, &[]);
                         pass.set_bind_group(1, &quads_bind_group, &[]);
-                        pass.set_vertex_buffer(0, self.context.quads_buffer.slice(..));
                         pass.draw(0..4, 0..quads.len() as u32);
                     }
 
