@@ -1,6 +1,6 @@
 use crate::{
-    Bounds, Capslock, Modifiers, Pixels, PlatformWindow, Point, Size, WindowAppearance,
-    WindowBackgroundAppearance, WindowBounds,
+    Bounds, Capslock, Modifiers, Pixels, PlatformInputHandler, PlatformWindow, Point, Size,
+    WindowAppearance, WindowBackgroundAppearance, WindowBounds,
     platform::cross::{atlas::WgpuAtlas, render_context::WgpuContext, renderer::WgpuRenderer},
 };
 use std::{
@@ -22,6 +22,10 @@ pub(crate) struct CrossWindowInner {
 #[derive(Default)]
 pub(crate) struct CrossWindowState {
     pub(crate) callbacks: Callbacks,
+    pub(crate) input_handler: RefCell<Option<PlatformInputHandler>>,
+    pub(crate) mouse_position: Cell<Point<Pixels>>,
+    pub(crate) modifiers: Cell<Modifiers>,
+    pub(crate) capslock: Cell<Capslock>,
 }
 
 #[derive(Default)]
@@ -174,26 +178,27 @@ impl PlatformWindow for CrossWindow {
     }
 
     fn mouse_position(&self) -> Point<Pixels> {
-        // TODO(mdeand): Add support for querying the mouse position.
-        Default::default()
+        self.0.state.mouse_position.get()
     }
 
     fn modifiers(&self) -> Modifiers {
-        Modifiers::default()
+        self.0.state.modifiers.get()
     }
 
     fn capslock(&self) -> Capslock {
-        // TODO(mdeand): Add support for querying the capslock state.
-        Capslock::default()
+        self.0.state.capslock.get()
     }
 
-    fn set_input_handler(&mut self, _input_handler: crate::PlatformInputHandler) {
-        // TODO(mdeand): Add support for setting the input handler.
+    fn set_input_handler(&mut self, input_handler: PlatformInputHandler) {
+        self.0
+            .state
+            .input_handler
+            .borrow_mut()
+            .replace(input_handler);
     }
 
-    fn take_input_handler(&mut self) -> Option<crate::PlatformInputHandler> {
-        // TODO(mdeand): Add support for taking the input handler.
-        None
+    fn take_input_handler(&mut self) -> Option<PlatformInputHandler> {
+        self.0.state.input_handler.borrow_mut().take()
     }
 
     fn prompt(

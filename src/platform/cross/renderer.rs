@@ -572,38 +572,47 @@ struct WgpuPipelines {
     color_targets: Vec<Option<wgpu::ColorTargetState>>,
 
     quads_bind_group_layout: wgpu::BindGroupLayout,
+    shadows_bind_group_layout: wgpu::BindGroupLayout,
+    underlines_bind_group_layout: wgpu::BindGroupLayout,
     sprites_bind_group_layout: wgpu::BindGroupLayout,
     mono_sprites_bind_group_layout: wgpu::BindGroupLayout,
+    poly_sprites_bind_group_layout: wgpu::BindGroupLayout,
 
     globals_bind_group: wgpu::BindGroup,
     color_adjustments_bind_group: wgpu::BindGroup,
 
-    // quads_pipeline_layout: wgpu::PipelineLayout,
     quads_pipeline: wgpu::RenderPipeline,
+    shadows_pipeline: wgpu::RenderPipeline,
+    underlines_pipeline: wgpu::RenderPipeline,
     mono_sprites_pipeline: wgpu::RenderPipeline,
-    // quads: wgpu::RenderPipeline,
-    /*
-       shadows: wgpu::RenderPipeline,
-       path_rasterization: wgpu::RenderPipeline,
-       paths: wgpu::RenderPipeline,
-       underlines: wgpu::RenderPipeline,
-       mono_sprites: wgpu::RenderPipeline,
-       poly_sprites: wgpu::RenderPipeline,
-       surfaces: wgpu::RenderPipeline,
-    */
+    poly_sprites_pipeline: wgpu::RenderPipeline,
 }
 
 impl WgpuPipelines {
     pub fn new(
         context: &WgpuContext,
         surface_configuration: &wgpu::SurfaceConfiguration,
-        path_sample_count: u32,
+        _path_sample_count: u32,
     ) -> Self {
         let quads_shader = context
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("quads_shader"),
                 source: wgpu::ShaderSource::Wgsl(include_str!("shaders/quads.wgsl").into()),
+            });
+
+        let shadows_shader = context
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("shadows_shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("shaders/shadows.wgsl").into()),
+            });
+
+        let underlines_shader = context
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("underlines_shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("shaders/underlines.wgsl").into()),
             });
 
         let mono_sprite_shader =
@@ -613,6 +622,16 @@ impl WgpuPipelines {
                     label: Some("mono_sprites shader"),
                     source: wgpu::ShaderSource::Wgsl(
                         include_str!("shaders/mono_sprites.wgsl").into(),
+                    ),
+                });
+
+        let poly_sprite_shader =
+            context
+                .device
+                .create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("poly_sprites shader"),
+                    source: wgpu::ShaderSource::Wgsl(
+                        include_str!("shaders/poly_sprites.wgsl").into(),
                     ),
                 });
 
@@ -628,65 +647,6 @@ impl WgpuPipelines {
             blend: Some(blend_mode),
             write_mask: wgpu::ColorWrites::ALL,
         })];
-
-        /*
-        let quads_bind_group_layout_2 =
-            context
-                .device
-                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    label: Some("quads_bind_group_layout_2"),
-                    entries: &[
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Uniform,
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: Some(std::num::NonZeroU32::new(1).unwrap()),
-                        },
-                    ],
-                });
-
-
-        let quads_bind_group_2 = context
-            .device
-            .create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("quads_bind_group_2"),
-                layout: &quads_bind_group_layout_2,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                            buffer: &context.globals_buffer,
-                            offset: 0,
-                            size: None,
-                        }),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                            buffer: &context.quads_buffer,
-                            offset: 0,
-                            size: None,
-                        }),
-                    },
-                ],
-            });
-          */
-
-        // TODO(mdeand): Potentially create a pipeline cache for optimization?
 
         let globals_bind_group_layout =
             context
@@ -773,6 +733,61 @@ impl WgpuPipelines {
                     push_constant_ranges: &[],
                 });
 
+        let shadows_bind_group_layout =
+            context
+                .device
+                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some("shadows_bind_group_layout"),
+                    entries: &[wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    }],
+                });
+
+        let shadows_pipeline_layout =
+            context
+                .device
+                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("shadows_pipeline_layout"),
+                    bind_group_layouts: &[&globals_bind_group_layout, &shadows_bind_group_layout],
+                    push_constant_ranges: &[],
+                });
+
+        let underlines_bind_group_layout =
+            context
+                .device
+                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some("underlines_bind_group_layout"),
+                    entries: &[wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    }],
+                });
+
+        let underlines_pipeline_layout =
+            context
+                .device
+                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("underlines_pipeline_layout"),
+                    bind_group_layouts: &[
+                        &globals_bind_group_layout,
+                        &underlines_bind_group_layout,
+                    ],
+                    push_constant_ranges: &[],
+                });
+
         let mono_sprites_bind_group_layout =
             context
                 .device
@@ -800,6 +815,36 @@ impl WgpuPipelines {
                         &color_adjustments_bind_group_layout,
                         &sprites_bind_group_layout,
                         &mono_sprites_bind_group_layout,
+                    ],
+                    push_constant_ranges: &[],
+                });
+
+        let poly_sprites_bind_group_layout =
+            context
+                .device
+                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some("Poly sprites bind group layout"),
+                    entries: &[wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    }],
+                });
+
+        let poly_sprites_pipeline_layout =
+            context
+                .device
+                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("Poly sprites pipeline layout"),
+                    bind_group_layouts: &[
+                        &globals_bind_group_layout,
+                        &sprites_bind_group_layout,
+                        &poly_sprites_bind_group_layout,
                     ],
                     push_constant_ranges: &[],
                 });
@@ -835,37 +880,19 @@ impl WgpuPipelines {
                     }],
                 });
 
-        /*
-               let sprites_bind_group = context
-                   .device
-                   .create_bind_group(&wgpu::BindGroupDescriptor {
-                       label: Some("sprites_bind_group"),
-                       layout: &sprite_bind_group_layout,
-                       entries: &[
-                           wgpu::BindGroupEntry {
-                               binding: 0,
-                               resource: wgpu::BindingResource::TextureView(&context.sprite_texture_view),
-                           },
-                           wgpu::BindGroupEntry {
-                               binding: 1,
-                               resource: wgpu::BindingResource::Sampler(&context.sprite_sampler),
-                           },
-                       ],
-                   });
-        */
-
         Self {
             color_targets: color_targets.to_vec(),
 
-            //globals_bind_group,
             quads_bind_group_layout,
+            shadows_bind_group_layout,
+            underlines_bind_group_layout,
             mono_sprites_bind_group_layout,
             sprites_bind_group_layout,
+            poly_sprites_bind_group_layout,
 
             globals_bind_group,
             color_adjustments_bind_group,
 
-            // quads_pipeline_layout,
             quads_pipeline: context.device.create_render_pipeline(
                 &wgpu::RenderPipelineDescriptor {
                     label: Some("quads"),
@@ -885,6 +912,60 @@ impl WgpuPipelines {
                     fragment: Some(wgpu::FragmentState {
                         module: &quads_shader,
                         entry_point: Some("fs_quad"),
+                        compilation_options: wgpu::PipelineCompilationOptions::default(),
+                        targets: color_targets,
+                    }),
+                    multiview: None,
+                    cache: None,
+                },
+            ),
+
+            shadows_pipeline: context.device.create_render_pipeline(
+                &wgpu::RenderPipelineDescriptor {
+                    label: Some("shadows"),
+                    layout: Some(&shadows_pipeline_layout),
+                    vertex: wgpu::VertexState {
+                        module: &shadows_shader,
+                        entry_point: Some("vs_shadow"),
+                        compilation_options: wgpu::PipelineCompilationOptions::default(),
+                        buffers: &[],
+                    },
+                    primitive: wgpu::PrimitiveState {
+                        topology: wgpu::PrimitiveTopology::TriangleStrip,
+                        ..Default::default()
+                    },
+                    depth_stencil: None,
+                    multisample: wgpu::MultisampleState::default(),
+                    fragment: Some(wgpu::FragmentState {
+                        module: &shadows_shader,
+                        entry_point: Some("fs_shadow"),
+                        compilation_options: wgpu::PipelineCompilationOptions::default(),
+                        targets: color_targets,
+                    }),
+                    multiview: None,
+                    cache: None,
+                },
+            ),
+
+            underlines_pipeline: context.device.create_render_pipeline(
+                &wgpu::RenderPipelineDescriptor {
+                    label: Some("underlines"),
+                    layout: Some(&underlines_pipeline_layout),
+                    vertex: wgpu::VertexState {
+                        module: &underlines_shader,
+                        entry_point: Some("vs_underline"),
+                        compilation_options: wgpu::PipelineCompilationOptions::default(),
+                        buffers: &[],
+                    },
+                    primitive: wgpu::PrimitiveState {
+                        topology: wgpu::PrimitiveTopology::TriangleStrip,
+                        ..Default::default()
+                    },
+                    depth_stencil: None,
+                    multisample: wgpu::MultisampleState::default(),
+                    fragment: Some(wgpu::FragmentState {
+                        module: &underlines_shader,
+                        entry_point: Some("fs_underline"),
                         compilation_options: wgpu::PipelineCompilationOptions::default(),
                         targets: color_targets,
                     }),
@@ -919,161 +1000,13 @@ impl WgpuPipelines {
                     cache: None,
                 },
             ),
-            /*
-            shadows: context
-                .device
-                .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                    label: Some("shadows"),
-                    // TODO: layout
-                    layout: None,
-                    vertex: wgpu::VertexState {
-                        module: &shader,
-                        entry_point: Some("vs_shadow"),
-                        compilation_options: wgpu::PipelineCompilationOptions::default(),
-                        buffers: &[],
-                    },
-                    primitive: wgpu::PrimitiveState {
-                        topology: wgpu::PrimitiveTopology::TriangleStrip,
-                        ..Default::default()
-                    },
-                    depth_stencil: None,
-                    multisample: wgpu::MultisampleState::default(),
-                    fragment: Some(wgpu::FragmentState {
-                        module: &shader,
-                        entry_point: Some("fs_shadow"),
-                        compilation_options: wgpu::PipelineCompilationOptions::default(),
-                        targets: color_targets,
-                    }),
-                    multiview: None,
-                    cache: None,
-                }),
-            path_rasterization: context.device.create_render_pipeline(
+
+            poly_sprites_pipeline: context.device.create_render_pipeline(
                 &wgpu::RenderPipelineDescriptor {
-                    label: Some("path_rasterization"),
-                    // TODO: layout
-                    layout: None,
-                    vertex: wgpu::VertexState {
-                        module: &shader,
-                        entry_point: Some("vs_path_rasterization"),
-                        compilation_options: wgpu::PipelineCompilationOptions::default(),
-                        buffers: &[],
-                    },
-                    primitive: wgpu::PrimitiveState {
-                        topology: wgpu::PrimitiveTopology::TriangleList,
-                        ..Default::default()
-                    },
-                    depth_stencil: None,
-                    multisample: wgpu::MultisampleState {
-                        count: path_sample_count,
-                        ..Default::default()
-                    },
-                    fragment: Some(wgpu::FragmentState {
-                        module: &shader,
-                        entry_point: Some("fs_path_rasterization"),
-                        compilation_options: wgpu::PipelineCompilationOptions::default(),
-                        targets: &[Some(wgpu::ColorTargetState {
-                            format: surface_configuration.format,
-                            blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
-                            write_mask: wgpu::ColorWrites::ALL,
-                        })],
-                    }),
-                    multiview: None,
-                    cache: None,
-                },
-            ),
-            paths: context
-                .device
-                .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                    label: Some("paths"),
-                    // TODO: layout
-                    layout: None,
-                    vertex: wgpu::VertexState {
-                        module: &shader,
-                        entry_point: Some("vs_path"),
-                        compilation_options: wgpu::PipelineCompilationOptions::default(),
-                        buffers: &[],
-                    },
-                    primitive: wgpu::PrimitiveState {
-                        topology: wgpu::PrimitiveTopology::TriangleStrip,
-                        ..Default::default()
-                    },
-                    depth_stencil: None,
-                    multisample: wgpu::MultisampleState::default(),
-                    fragment: Some(wgpu::FragmentState {
-                        module: &shader,
-                        entry_point: Some("fs_path"),
-                        compilation_options: wgpu::PipelineCompilationOptions::default(),
-                        targets: &[Some(wgpu::ColorTargetState {
-                            format: surface_configuration.format,
-                            blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
-                            write_mask: wgpu::ColorWrites::ALL,
-                        })],
-                    }),
-                    multiview: None,
-                    cache: None,
-                }),
-            underlines: context
-                .device
-                .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                    label: Some("underlines"),
-                    // TODO: layout
-                    layout: None,
-                    vertex: wgpu::VertexState {
-                        module: &shader,
-                        entry_point: Some("vs_underline"),
-                        compilation_options: wgpu::PipelineCompilationOptions::default(),
-                        buffers: &[],
-                    },
-                    primitive: wgpu::PrimitiveState {
-                        topology: wgpu::PrimitiveTopology::TriangleStrip,
-                        ..Default::default()
-                    },
-                    depth_stencil: None,
-                    multisample: wgpu::MultisampleState::default(),
-                    fragment: Some(wgpu::FragmentState {
-                        module: &shader,
-                        entry_point: Some("fs_underline"),
-                        compilation_options: wgpu::PipelineCompilationOptions::default(),
-                        targets: color_targets,
-                    }),
-                    multiview: None,
-                    cache: None,
-                }),
-            mono_sprites: context
-                .device
-                .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                    label: Some("mono_sprites"),
-                    // TODO: layout
-                    layout: None,
-                    vertex: wgpu::VertexState {
-                        module: &shader,
-                        entry_point: Some("vs_mono_sprite"),
-                        compilation_options: wgpu::PipelineCompilationOptions::default(),
-                        buffers: &[],
-                    },
-                    primitive: wgpu::PrimitiveState {
-                        topology: wgpu::PrimitiveTopology::TriangleStrip,
-                        ..Default::default()
-                    },
-                    depth_stencil: None,
-                    multisample: wgpu::MultisampleState::default(),
-                    fragment: Some(wgpu::FragmentState {
-                        module: &shader,
-                        entry_point: Some("fs_mono_sprite"),
-                        compilation_options: wgpu::PipelineCompilationOptions::default(),
-                        targets: color_targets,
-                    }),
-                    multiview: None,
-                    cache: None,
-                }),
-            poly_sprites: context
-                .device
-                .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                     label: Some("poly_sprites"),
-                    // TODO: layout
-                    layout: None,
+                    layout: Some(&poly_sprites_pipeline_layout),
                     vertex: wgpu::VertexState {
-                        module: &shader,
+                        module: &poly_sprite_shader,
                         entry_point: Some("vs_poly_sprite"),
                         compilation_options: wgpu::PipelineCompilationOptions::default(),
                         buffers: &[],
@@ -1083,44 +1016,17 @@ impl WgpuPipelines {
                         ..Default::default()
                     },
                     depth_stencil: None,
-                    multisample: wgpu::MultisampleState::default(),
                     fragment: Some(wgpu::FragmentState {
-                        module: &shader,
+                        module: &poly_sprite_shader,
                         entry_point: Some("fs_poly_sprite"),
                         compilation_options: wgpu::PipelineCompilationOptions::default(),
                         targets: color_targets,
                     }),
-                    multiview: None,
-                    cache: None,
-                }),
-            surfaces: context
-                .device
-                .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                    label: Some("surfaces"),
-                    // TODO: layout
-                    layout: None,
-                    vertex: wgpu::VertexState {
-                        module: &shader,
-                        entry_point: Some("vs_surface"),
-                        compilation_options: wgpu::PipelineCompilationOptions::default(),
-                        buffers: &[],
-                    },
-                    primitive: wgpu::PrimitiveState {
-                        topology: wgpu::PrimitiveTopology::TriangleStrip,
-                        ..Default::default()
-                    },
-                    depth_stencil: None,
                     multisample: wgpu::MultisampleState::default(),
-                    fragment: Some(wgpu::FragmentState {
-                        module: &shader,
-                        entry_point: Some("fs_surface"),
-                        compilation_options: wgpu::PipelineCompilationOptions::default(),
-                        targets: color_targets,
-                    }),
                     multiview: None,
                     cache: None,
-                }),
-               */
+                },
+            ),
         }
     }
 }
@@ -1265,10 +1171,153 @@ impl WgpuRenderer {
             bytemuck::bytes_of(&color_adjustments),
         );
 
+        let globals = GlobalParams {
+            viewport_size: [
+                self.surface_configuration.width as f32,
+                self.surface_configuration.height as f32,
+            ],
+            premultimated_alpha: match self.surface_configuration.alpha_mode {
+                wgpu::CompositeAlphaMode::PreMultiplied => 1,
+                _ => 0,
+            },
+            pad: 0,
+        };
+
+        self.context.queue.write_buffer(
+            &self.context.globals_buffer,
+            0,
+            bytemuck::bytes_of(&globals),
+        );
+
+        unsafe fn as_bytes<T>(slice: &[T]) -> &[u8] {
+            unsafe {
+                std::slice::from_raw_parts(
+                    slice.as_ptr() as *const u8,
+                    slice.len() * std::mem::size_of::<T>(),
+                )
+            }
+        }
+
+        if !scene.quads.is_empty() {
+            self.context
+                .queue
+                .write_buffer(&self.context.quads_buffer, 0, unsafe {
+                    as_bytes(&scene.quads)
+                });
+        }
+        if !scene.shadows.is_empty() {
+            self.context
+                .queue
+                .write_buffer(&self.context.shadows_buffer, 0, unsafe {
+                    as_bytes(&scene.shadows)
+                });
+        }
+        if !scene.underlines.is_empty() {
+            self.context
+                .queue
+                .write_buffer(&self.context.underlines_buffer, 0, unsafe {
+                    as_bytes(&scene.underlines)
+                });
+        }
+        if !scene.monochrome_sprites.is_empty() {
+            self.context
+                .queue
+                .write_buffer(&self.context.mono_sprites_buffer, 0, unsafe {
+                    as_bytes(&scene.monochrome_sprites)
+                });
+        }
+        if !scene.polychrome_sprites.is_empty() {
+            self.context
+                .queue
+                .write_buffer(&self.context.poly_sprites_buffer, 0, unsafe {
+                    as_bytes(&scene.polychrome_sprites)
+                });
+        }
+
         let surface_texture = self
             .surface
             .get_current_texture()
             .expect("Failed to acquire next swap chain texture");
+
+        let quads_bind_group = self
+            .context
+            .device
+            .create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("quads_bind_group"),
+                layout: &self.pipelines.quads_bind_group_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &self.context.quads_buffer,
+                        offset: 0,
+                        size: None,
+                    }),
+                }],
+            });
+
+        let shadows_bind_group =
+            self.context
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("shadows_bind_group"),
+                    layout: &self.pipelines.shadows_bind_group_layout,
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: &self.context.shadows_buffer,
+                            offset: 0,
+                            size: None,
+                        }),
+                    }],
+                });
+
+        let underlines_bind_group =
+            self.context
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("underlines_bind_group"),
+                    layout: &self.pipelines.underlines_bind_group_layout,
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: &self.context.underlines_buffer,
+                            offset: 0,
+                            size: None,
+                        }),
+                    }],
+                });
+
+        let mono_sprites_bind_group =
+            self.context
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("mono_sprites_bind_group"),
+                    layout: &self.pipelines.mono_sprites_bind_group_layout,
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: &self.context.mono_sprites_buffer,
+                            offset: 0,
+                            size: None,
+                        }),
+                    }],
+                });
+
+        let poly_sprites_bind_group =
+            self.context
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("poly_sprites_bind_group"),
+                    layout: &self.pipelines.poly_sprites_bind_group_layout,
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: &self.context.poly_sprites_buffer,
+                            offset: 0,
+                            size: None,
+                        }),
+                    }],
+                });
 
         {
             let mut pass = command_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -1288,85 +1337,31 @@ impl WgpuRenderer {
                 occlusion_query_set: None,
             });
 
-            let globals = GlobalParams {
-                viewport_size: [
-                    self.surface_configuration.width as f32,
-                    self.surface_configuration.height as f32,
-                ],
-                premultimated_alpha: match self.surface_configuration.alpha_mode {
-                    wgpu::CompositeAlphaMode::PreMultiplied => 1,
-                    _ => 0,
-                },
-                pad: 0,
-            };
-
-            self.context.queue.write_buffer(
-                &self.context.globals_buffer,
-                0,
-                bytemuck::bytes_of(&globals),
-            );
+            let mut quads_first_instance: u32 = 0;
+            let mut shadows_first_instance: u32 = 0;
+            let mut underlines_first_instance: u32 = 0;
+            let mut mono_sprites_first_instance: u32 = 0;
+            let mut poly_sprites_first_instance: u32 = 0;
 
             for batch in scene.batches() {
                 match batch {
                     PrimitiveBatch::Quads(quads) => {
-                        let quads_bind_group =
-                            self.context
-                                .device
-                                .create_bind_group(&wgpu::BindGroupDescriptor {
-                                    label: Some("quads_bind_group"),
-                                    layout: &self.pipelines.quads_bind_group_layout,
-                                    entries: &[wgpu::BindGroupEntry {
-                                        binding: 0,
-                                        resource: wgpu::BindingResource::Buffer(
-                                            wgpu::BufferBinding {
-                                                buffer: &self.context.quads_buffer,
-                                                offset: 0,
-                                                size: None,
-                                            },
-                                        ),
-                                    }],
-                                });
-
-                        self.context
-                            .queue
-                            .write_buffer(&self.context.quads_buffer, 0, unsafe {
-                                std::slice::from_raw_parts(
-                                    quads.as_ptr() as *const u8,
-                                    quads.len() * std::mem::size_of::<Quad>(),
-                                )
-                            });
-
+                        let count = quads.len() as u32;
                         pass.set_pipeline(&self.pipelines.quads_pipeline);
                         pass.set_bind_group(0, &self.pipelines.globals_bind_group, &[]);
                         pass.set_bind_group(1, &quads_bind_group, &[]);
-                        pass.draw(0..4, 0..quads.len() as u32);
+                        pass.draw(0..4, quads_first_instance..quads_first_instance + count);
+                        quads_first_instance += count;
                     }
 
                     PrimitiveBatch::MonochromeSprites {
                         texture_id,
                         sprites,
                     } => {
+                        let count = sprites.len() as u32;
                         let tex_info = self.atlas.get_texture_info(texture_id);
 
-                        let mono_sprites_bind_group =
-                            self.context
-                                .device
-                                .create_bind_group(&wgpu::BindGroupDescriptor {
-                                    label: Some("mono_sprites_bind_group"),
-                                    layout: &self.pipelines.mono_sprites_bind_group_layout,
-                                    entries: &[wgpu::BindGroupEntry {
-                                        binding: 0,
-                                        resource: wgpu::BindingResource::Buffer(
-                                            wgpu::BufferBinding {
-                                                buffer: &self.context.mono_sprites_buffer,
-                                                offset: 0,
-                                                size: None,
-                                            },
-                                        ),
-                                    }],
-                                });
-
-                        let sprites_bind_group =
+                        let sprites_texture_bind_group =
                             self.context
                                 .device
                                 .create_bind_group(&wgpu::BindGroupDescriptor {
@@ -1388,32 +1383,77 @@ impl WgpuRenderer {
                                     ],
                                 });
 
-                        self.context.queue.write_buffer(
-                            &self.context.mono_sprites_buffer,
-                            0,
-                            unsafe {
-                                std::slice::from_raw_parts(
-                                    sprites.as_ptr() as *const u8,
-                                    sprites.len() * std::mem::size_of::<MonochromeSprite>(),
-                                )
-                            },
-                        );
-
                         pass.set_pipeline(&self.pipelines.mono_sprites_pipeline);
                         pass.set_bind_group(0, &self.pipelines.globals_bind_group, &[]);
                         pass.set_bind_group(1, &self.pipelines.color_adjustments_bind_group, &[]);
-                        pass.set_bind_group(2, &sprites_bind_group, &[]);
+                        pass.set_bind_group(2, &sprites_texture_bind_group, &[]);
                         pass.set_bind_group(3, &mono_sprites_bind_group, &[]);
-                        pass.draw(0..4, 0..sprites.len() as u32);
+                        pass.draw(
+                            0..4,
+                            mono_sprites_first_instance..mono_sprites_first_instance + count,
+                        );
+                        mono_sprites_first_instance += count;
                     }
                     PrimitiveBatch::PolychromeSprites {
                         texture_id,
                         sprites,
                     } => {
-                        // println!("PolychromeSprites: {:?}", sprites);
+                        let count = sprites.len() as u32;
+                        let tex_info = self.atlas.get_texture_info(texture_id);
+
+                        let sprites_texture_bind_group =
+                            self.context
+                                .device
+                                .create_bind_group(&wgpu::BindGroupDescriptor {
+                                    label: Some("poly_sprites_texture_bind_group"),
+                                    layout: &self.pipelines.sprites_bind_group_layout,
+                                    entries: &[
+                                        wgpu::BindGroupEntry {
+                                            binding: 0,
+                                            resource: wgpu::BindingResource::TextureView(
+                                                &tex_info.raw_view,
+                                            ),
+                                        },
+                                        wgpu::BindGroupEntry {
+                                            binding: 1,
+                                            resource: wgpu::BindingResource::Sampler(
+                                                &self.atlas_sampler,
+                                            ),
+                                        },
+                                    ],
+                                });
+
+                        pass.set_pipeline(&self.pipelines.poly_sprites_pipeline);
+                        pass.set_bind_group(0, &self.pipelines.globals_bind_group, &[]);
+                        pass.set_bind_group(1, &sprites_texture_bind_group, &[]);
+                        pass.set_bind_group(2, &poly_sprites_bind_group, &[]);
+                        pass.draw(
+                            0..4,
+                            poly_sprites_first_instance..poly_sprites_first_instance + count,
+                        );
+                        poly_sprites_first_instance += count;
                     }
-                    // TODO(mdeand): Implement other batch types.
-                    _ => {}
+                    PrimitiveBatch::Shadows(shadows) => {
+                        let count = shadows.len() as u32;
+                        pass.set_pipeline(&self.pipelines.shadows_pipeline);
+                        pass.set_bind_group(0, &self.pipelines.globals_bind_group, &[]);
+                        pass.set_bind_group(1, &shadows_bind_group, &[]);
+                        pass.draw(0..4, shadows_first_instance..shadows_first_instance + count);
+                        shadows_first_instance += count;
+                    }
+                    PrimitiveBatch::Underlines(underlines) => {
+                        let count = underlines.len() as u32;
+                        pass.set_pipeline(&self.pipelines.underlines_pipeline);
+                        pass.set_bind_group(0, &self.pipelines.globals_bind_group, &[]);
+                        pass.set_bind_group(1, &underlines_bind_group, &[]);
+                        pass.draw(
+                            0..4,
+                            underlines_first_instance..underlines_first_instance + count,
+                        );
+                        underlines_first_instance += count;
+                    }
+                    // TODO(mdeand): Implement paths and surfaces rendering.
+                    PrimitiveBatch::Paths(_) | PrimitiveBatch::Surfaces(_) => {}
                 }
             }
         }

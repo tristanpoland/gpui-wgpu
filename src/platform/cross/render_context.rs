@@ -6,11 +6,11 @@ pub struct WgpuContext {
 
     pub(super) globals_buffer: wgpu::Buffer,
     pub(super) quads_buffer: wgpu::Buffer,
+    pub(super) shadows_buffer: wgpu::Buffer,
+    pub(super) underlines_buffer: wgpu::Buffer,
     pub(super) mono_sprites_buffer: wgpu::Buffer,
+    pub(super) poly_sprites_buffer: wgpu::Buffer,
     pub(super) color_adjustments_buffer: wgpu::Buffer,
-    // pub(super) sprite_texture_view: wgpu::TextureView,
-    // pub(super) sprite_sampler: wgpu::Sampler,
-    // pub(super) poly_sprites_buffer: wgpu::Buffer,
 }
 
 impl WgpuContext {
@@ -64,6 +64,33 @@ impl WgpuContext {
             mapped_at_creation: false,
         });
 
+        let shadows_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Shadows Buffer"),
+            size: 1024 * 1024,
+            usage: wgpu::BufferUsages::VERTEX
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::STORAGE,
+            mapped_at_creation: false,
+        });
+
+        let underlines_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Underlines Buffer"),
+            size: 1024 * 1024,
+            usage: wgpu::BufferUsages::VERTEX
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::STORAGE,
+            mapped_at_creation: false,
+        });
+
+        let poly_sprites_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Poly Sprites Buffer"),
+            size: 1024 * 1024,
+            usage: wgpu::BufferUsages::VERTEX
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::STORAGE,
+            mapped_at_creation: false,
+        });
+
         let color_adjustments_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Color Adjustments Buffer"),
             size: 1024 * 16, // TODO(mdeand): 16 KB buffer for color adjustments, for now. (:
@@ -81,7 +108,10 @@ impl WgpuContext {
 
             globals_buffer,
             quads_buffer,
+            shadows_buffer,
+            underlines_buffer,
             mono_sprites_buffer,
+            poly_sprites_buffer,
             color_adjustments_buffer,
         })
     }

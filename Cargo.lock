@@ -3299,7 +3299,7 @@ dependencies = [
 [[package]]
 name = "lockfree"
 version = "0.5.1"
-source = "git+https://github.com/mdeand/priority-threadpool#a1d7e93be005e150b2edf60e8db6fe86ebdbf763"
+source = "git+https://github.com/mdeand/priority-threadpool#28df6ed5ebef6818f2ea0cde9bfd99d3067d42ce"
 dependencies = [
  "owned-alloc",
 ]
@@ -4508,7 +4508,7 @@ dependencies = [
 [[package]]
 name = "priority-threadpool"
 version = "0.1.0"
-source = "git+https://github.com/mdeand/priority-threadpool#a1d7e93be005e150b2edf60e8db6fe86ebdbf763"
+source = "git+https://github.com/mdeand/priority-threadpool#28df6ed5ebef6818f2ea0cde9bfd99d3067d42ce"
 dependencies = [
  "async-task",
  "lockfree",

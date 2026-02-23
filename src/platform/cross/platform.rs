@@ -1,6 +1,8 @@
 use crate::{
-    BackgroundExecutor, DevicePixels, DummyKeyboardMapper, ForegroundExecutor, Platform,
-    PlatformWindow as _, PriorityQueueReceiver, RunnableVariant, Size,
+    BackgroundExecutor, Capslock, DevicePixels, DummyKeyboardMapper, ForegroundExecutor,
+    KeyDownEvent, KeyUpEvent, Keystroke, Modifiers, ModifiersChangedEvent, MouseButton,
+    MouseDownEvent, MouseExitEvent, MouseMoveEvent, MouseUpEvent, Pixels, Platform, PlatformInput,
+    PlatformWindow as _, PriorityQueueReceiver, RunnableVariant, ScrollWheelEvent, Size,
     platform::cross::{
         dispatcher::{CrossEvent, Dispatcher},
         keyboard::CrossKeyboardLayout,
@@ -8,10 +10,11 @@ use crate::{
         text_system::CosmicTextSystem,
         window::CrossWindow,
     },
+    point,
 };
 use anyhow::Result;
 use collections::FxHashMap;
-use std::{cell::Cell, rc::Rc, sync::Arc};
+use std::{cell::Cell, rc::Rc, sync::Arc, time::Instant};
 use winit::event_loop::ActiveEventLoop;
 
 thread_local! {
@@ -51,6 +54,16 @@ struct AppState {
     windows: FxHashMap<winit::window::WindowId, CrossWindow>,
     on_finish_launching: Cell<Option<Box<dyn 'static + FnOnce()>>>,
     main_rx: PriorityQueueReceiver<RunnableVariant>,
+    current_modifiers: Modifiers,
+    pressed_button: Option<MouseButton>,
+    click_state: ClickState,
+}
+
+struct ClickState {
+    last_button: MouseButton,
+    last_position: crate::Point<Pixels>,
+    last_time: Option<Instant>,
+    current_count: usize,
 }
 
 impl CrossPlatform {
@@ -97,6 +110,14 @@ impl Platform for CrossPlatform {
             windows: Default::default(),
             on_finish_launching: Cell::new(Some(on_finish_launching)),
             main_rx: self.main_rx.clone(),
+            current_modifiers: Modifiers::default(),
+            pressed_button: None,
+            click_state: ClickState {
+                last_button: MouseButton::Left,
+                last_position: point(Pixels(0.0), Pixels(0.0)),
+                last_time: None,
+                current_count: 0,
+            },
         };
 
         event_loop
@@ -350,7 +371,9 @@ impl AppState {
                 RunnableVariant::Compat(runnable) => {
                     runnable.run();
                 }
-                RunnableVariant::Meta(_) => unimplemented!(),
+                RunnableVariant::Meta(runnable) => {
+                    runnable.run();
+                }
             }
         }
     }
@@ -514,11 +537,332 @@ impl winit::application::ApplicationHandler<CrossEvent> for AppState {
                 );
             }
 
-            winit::event::WindowEvent::KeyboardInput { .. } => {}
+            winit::event::WindowEvent::KeyboardInput {
+                event:
+                    winit::event::KeyEvent {
+                        logical_key,
+                        state,
+                        text,
+                        repeat,
+                        ..
+                    },
+                ..
+            } => {
+                let modifiers = self.current_modifiers;
+
+                if let Some(keystroke) = winit_key_to_keystroke(&logical_key, modifiers, &text) {
+                    let platform_event = match state {
+                        winit::event::ElementState::Pressed => {
+                            PlatformInput::KeyDown(KeyDownEvent {
+                                keystroke,
+                                is_held: repeat,
+                                prefer_character_input: false,
+                            })
+                        }
+                        winit::event::ElementState::Released => {
+                            PlatformInput::KeyUp(KeyUpEvent { keystroke })
+                        }
+                    };
+
+                    window
+                        .0
+                        .state
+                        .callbacks
+                        .invoke_mut(&window.0.state.callbacks.on_input, |cb| {
+                            cb(platform_event.clone());
+                        });
+                }
+            }
+
+            winit::event::WindowEvent::ModifiersChanged(new_modifiers) => {
+                let modifiers = winit_modifiers_to_gpui(new_modifiers.state());
+                self.current_modifiers = modifiers;
+
+                window.0.state.modifiers.set(modifiers);
+
+                let platform_event = PlatformInput::ModifiersChanged(ModifiersChangedEvent {
+                    modifiers,
+                    capslock: Capslock::default(),
+                });
+
+                window
+                    .0
+                    .state
+                    .callbacks
+                    .invoke_mut(&window.0.state.callbacks.on_input, |cb| {
+                        cb(platform_event.clone());
+                    });
+            }
+
+            winit::event::WindowEvent::CursorMoved { position, .. } => {
+                let scale_factor = window.scale_factor();
+                let position = point(
+                    Pixels(position.x as f32 / scale_factor),
+                    Pixels(position.y as f32 / scale_factor),
+                );
+
+                window.0.state.mouse_position.set(position);
+
+                let platform_event = PlatformInput::MouseMove(MouseMoveEvent {
+                    position,
+                    pressed_button: self.pressed_button,
+                    modifiers: self.current_modifiers,
+                });
+
+                window
+                    .0
+                    .state
+                    .callbacks
+                    .invoke_mut(&window.0.state.callbacks.on_input, |cb| {
+                        cb(platform_event.clone());
+                    });
+            }
+
+            winit::event::WindowEvent::CursorLeft { .. } => {
+                let position = window.0.state.mouse_position.get();
+                let platform_event = PlatformInput::MouseExited(MouseExitEvent {
+                    position,
+                    pressed_button: self.pressed_button,
+                    modifiers: self.current_modifiers,
+                });
+
+                window
+                    .0
+                    .state
+                    .callbacks
+                    .invoke_mut(&window.0.state.callbacks.on_input, |cb| {
+                        cb(platform_event.clone());
+                    });
+            }
+
+            winit::event::WindowEvent::MouseInput { state, button, .. } => {
+                let position = window.0.state.mouse_position.get();
+                let mouse_button = winit_mouse_button_to_gpui(button);
+                let modifiers = self.current_modifiers;
+
+                match state {
+                    winit::event::ElementState::Pressed => {
+                        self.pressed_button = Some(mouse_button);
+
+                        let click_count =
+                            self.click_state
+                                .update(mouse_button, position, Instant::now());
+
+                        let platform_event = PlatformInput::MouseDown(MouseDownEvent {
+                            button: mouse_button,
+                            position,
+                            modifiers,
+                            click_count,
+                            first_mouse: false,
+                        });
+
+                        window.0.state.callbacks.invoke_mut(
+                            &window.0.state.callbacks.on_input,
+                            |cb| {
+                                cb(platform_event.clone());
+                            },
+                        );
+                    }
+                    winit::event::ElementState::Released => {
+                        self.pressed_button = None;
+
+                        let platform_event = PlatformInput::MouseUp(MouseUpEvent {
+                            button: mouse_button,
+                            position,
+                            modifiers,
+                            click_count: self.click_state.current_count,
+                        });
+
+                        window.0.state.callbacks.invoke_mut(
+                            &window.0.state.callbacks.on_input,
+                            |cb| {
+                                cb(platform_event.clone());
+                            },
+                        );
+                    }
+                }
+            }
+
+            winit::event::WindowEvent::MouseWheel { delta, phase, .. } => {
+                let position = window.0.state.mouse_position.get();
+                let modifiers = self.current_modifiers;
+
+                let scroll_delta = match delta {
+                    winit::event::MouseScrollDelta::LineDelta(x, y) => {
+                        crate::ScrollDelta::Lines(point(x, y))
+                    }
+                    winit::event::MouseScrollDelta::PixelDelta(delta) => {
+                        let scale_factor = window.scale_factor();
+                        crate::ScrollDelta::Pixels(point(
+                            Pixels(delta.x as f32 / scale_factor),
+                            Pixels(delta.y as f32 / scale_factor),
+                        ))
+                    }
+                };
+
+                let touch_phase = match phase {
+                    winit::event::TouchPhase::Started => crate::TouchPhase::Started,
+                    winit::event::TouchPhase::Moved => crate::TouchPhase::Moved,
+                    winit::event::TouchPhase::Ended | winit::event::TouchPhase::Cancelled => {
+                        crate::TouchPhase::Ended
+                    }
+                };
+
+                let platform_event = PlatformInput::ScrollWheel(ScrollWheelEvent {
+                    position,
+                    delta: scroll_delta,
+                    modifiers,
+                    touch_phase,
+                });
+
+                window
+                    .0
+                    .state
+                    .callbacks
+                    .invoke_mut(&window.0.state.callbacks.on_input, |cb| {
+                        cb(platform_event.clone());
+                    });
+            }
 
             _ => (),
         }
 
         self.clear_active_context();
     }
+}
+
+const DOUBLE_CLICK_THRESHOLD_MS: u128 = 500;
+const DOUBLE_CLICK_DISTANCE: f32 = 5.0;
+
+impl ClickState {
+    fn update(
+        &mut self,
+        button: MouseButton,
+        position: crate::Point<Pixels>,
+        now: Instant,
+    ) -> usize {
+        let is_same_button = self.last_button == button;
+        let is_within_time = self
+            .last_time
+            .map(|t| now.duration_since(t).as_millis() < DOUBLE_CLICK_THRESHOLD_MS)
+            .unwrap_or(false);
+        let distance = ((position.x - self.last_position.x).0.powi(2)
+            + (position.y - self.last_position.y).0.powi(2))
+        .sqrt();
+        let is_within_distance = distance < DOUBLE_CLICK_DISTANCE;
+
+        if is_same_button && is_within_time && is_within_distance {
+            self.current_count += 1;
+        } else {
+            self.current_count = 1;
+        }
+
+        self.last_button = button;
+        self.last_position = position;
+        self.last_time = Some(now);
+
+        self.current_count
+    }
+}
+
+fn winit_modifiers_to_gpui(modifiers: winit::keyboard::ModifiersState) -> Modifiers {
+    Modifiers {
+        control: modifiers.control_key(),
+        alt: modifiers.alt_key(),
+        shift: modifiers.shift_key(),
+        platform: modifiers.super_key(),
+        function: false,
+    }
+}
+
+fn winit_mouse_button_to_gpui(button: winit::event::MouseButton) -> MouseButton {
+    match button {
+        winit::event::MouseButton::Left => MouseButton::Left,
+        winit::event::MouseButton::Right => MouseButton::Right,
+        winit::event::MouseButton::Middle => MouseButton::Middle,
+        winit::event::MouseButton::Back => MouseButton::Navigate(crate::NavigationDirection::Back),
+        winit::event::MouseButton::Forward => {
+            MouseButton::Navigate(crate::NavigationDirection::Forward)
+        }
+        winit::event::MouseButton::Other(_) => MouseButton::Left,
+    }
+}
+
+fn winit_key_to_keystroke(
+    logical_key: &winit::keyboard::Key,
+    modifiers: Modifiers,
+    text: &Option<winit::keyboard::SmolStr>,
+) -> Option<Keystroke> {
+    use winit::keyboard::Key as WKey;
+    use winit::keyboard::NamedKey;
+
+    let (key, key_char) = match logical_key {
+        WKey::Named(named) => {
+            let key_name = match named {
+                NamedKey::Backspace => "backspace",
+                NamedKey::Tab => "tab",
+                NamedKey::Enter => "enter",
+                NamedKey::Escape => "escape",
+                NamedKey::Space => "space",
+                NamedKey::ArrowLeft => "left",
+                NamedKey::ArrowRight => "right",
+                NamedKey::ArrowUp => "up",
+                NamedKey::ArrowDown => "down",
+                NamedKey::Home => "home",
+                NamedKey::End => "end",
+                NamedKey::PageUp => "pageup",
+                NamedKey::PageDown => "pagedown",
+                NamedKey::Insert => "insert",
+                NamedKey::Delete => "delete",
+                NamedKey::F1 => "f1",
+                NamedKey::F2 => "f2",
+                NamedKey::F3 => "f3",
+                NamedKey::F4 => "f4",
+                NamedKey::F5 => "f5",
+                NamedKey::F6 => "f6",
+                NamedKey::F7 => "f7",
+                NamedKey::F8 => "f8",
+                NamedKey::F9 => "f9",
+                NamedKey::F10 => "f10",
+                NamedKey::F11 => "f11",
+                NamedKey::F12 => "f12",
+                NamedKey::BrowserBack => "back",
+                NamedKey::BrowserForward => "forward",
+                // Modifier-only keys don't produce keystrokes by themselves
+                NamedKey::Shift
+                | NamedKey::Control
+                | NamedKey::Alt
+                | NamedKey::Super
+                | NamedKey::Meta => return None,
+                _ => return None,
+            };
+            (key_name.to_string(), None)
+        }
+        WKey::Character(ch) => {
+            let key = ch.to_lowercase();
+            let key_char = text.as_ref().map(|t| t.to_string()).or_else(|| {
+                if !modifiers.control
+                    && !modifiers.platform
+                    && !modifiers.function
+                    && !modifiers.alt
+                {
+                    if modifiers.shift {
+                        Some(ch.to_uppercase().to_string())
+                    } else {
+                        Some(ch.to_string())
+                    }
+                } else {
+                    None
+                }
+            });
+            (key, key_char)
+        }
+        WKey::Unidentified(_) | WKey::Dead(_) => return None,
+    };
+
+    Some(Keystroke {
+        modifiers,
+        key,
+        key_char,
+    })
 }
