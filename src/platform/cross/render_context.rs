@@ -26,8 +26,6 @@ impl WgpuContext {
             force_fallback_adapter: false,
         }))?;
 
-        println!("Adapter Info: {:?}", adapter.get_info());
-
         let (device, queue) =
             pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
                 label: None,
