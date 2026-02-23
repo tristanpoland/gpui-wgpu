@@ -63,13 +63,10 @@ impl PlatformDispatcher for Dispatcher {
         _label: Option<crate::TaskLabel>,
         priority: Priority,
     ) {
-        // TODO(mdeand): Unify the types?
-        let runnable = match runnable {
-            RunnableVariant::Meta(_runnable) => unimplemented!(),
-            RunnableVariant::Compat(runnable) => runnable,
-        };
-
-        self.threadpool.queue(&priority, runnable);
+        match runnable {
+            RunnableVariant::Meta(runnable) => self.threadpool.queue(&priority, runnable),
+            RunnableVariant::Compat(runnable) => self.threadpool.queue(&priority, runnable),
+        }
     }
 
     fn dispatch_on_main_thread(&self, runnable: RunnableVariant, priority: Priority) {
@@ -84,14 +81,16 @@ impl PlatformDispatcher for Dispatcher {
     }
 
     fn dispatch_after(&self, duration: std::time::Duration, runnable: RunnableVariant) {
-        // TODO(mdeand): Unify the types?
-        let runnable = match runnable {
-            RunnableVariant::Meta(_runnable) => unimplemented!(),
-            RunnableVariant::Compat(runnable) => runnable,
-        };
-
-        self.threadpool
-            .queue_delayed(&Priority::Low, duration, runnable);
+        match runnable {
+            RunnableVariant::Meta(runnable) => {
+                self.threadpool
+                    .queue_delayed(&Priority::Low, duration, runnable);
+            }
+            RunnableVariant::Compat(runnable) => {
+                self.threadpool
+                    .queue_delayed(&Priority::Low, duration, runnable);
+            }
+        }
     }
 
     fn spawn_realtime(&self, _priority: RealtimePriority, f: Box<dyn FnOnce() + Send>) {
