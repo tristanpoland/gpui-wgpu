@@ -225,6 +225,9 @@ x11-clipboard = { version = "0.9.3", optional = true }
 [target.'cfg(target_os = "windows")'.dependencies]
 flume = "0.11"
 rand = "0.9"
+cosmic-text = "0.14.0"
+pathfinder_geometry = "0.5"
+font-kit = { git = "https://github.com/zed-industries/font-kit", rev = "110523127440aefb11ce0cf280ae7c5071337ec5", package = "zed-font-kit", version = "0.14.1-zed" }
 windows = { version = "0.61", features = [
     "Foundation_Numerics",
     "Storage_Search",

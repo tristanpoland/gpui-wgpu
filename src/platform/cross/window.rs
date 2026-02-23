@@ -98,18 +98,22 @@ impl CrossWindow {
 
 impl PlatformWindow for CrossWindow {
     fn bounds(&self) -> Bounds<Pixels> {
-        let size = self.window().inner_size();
+        let scale_factor = self.window().scale_factor() as f32;
+        let physical_size = self.window().inner_size();
+        let origin = self
+            .window()
+            .outer_position()
+            .map(|pos| Point {
+                x: Pixels(pos.x as f32 / scale_factor),
+                y: Pixels(pos.y as f32 / scale_factor),
+            })
+            .unwrap_or_default();
 
         Bounds {
-            // TODO(mdeand): Should this be the outer size instead of the inner size?
-            // TODO(mdeand): Should this be the position of the window instead of (0, 0)?
-            origin: Point {
-                x: Pixels(0.),
-                y: Pixels(0.),
-            },
+            origin,
             size: Size {
-                width: Pixels(size.width as f32),
-                height: Pixels(size.height as f32),
+                width: Pixels(physical_size.width as f32 / scale_factor),
+                height: Pixels(physical_size.height as f32 / scale_factor),
             },
         }
     }
@@ -133,11 +137,12 @@ impl PlatformWindow for CrossWindow {
     }
 
     fn content_size(&self) -> crate::Size<crate::Pixels> {
-        let size = self.window().inner_size();
+        let scale_factor = self.window().scale_factor() as f32;
+        let physical_size = self.window().inner_size();
 
         crate::Size {
-            width: Pixels(size.width as f32),
-            height: Pixels(size.height as f32),
+            width: Pixels(physical_size.width as f32 / scale_factor),
+            height: Pixels(physical_size.height as f32 / scale_factor),
         }
     }
 
@@ -317,6 +322,17 @@ impl PlatformWindow for CrossWindow {
     }
 
     fn update_ime_position(&self, _bounds: crate::Bounds<crate::Pixels>) {}
+
+    #[cfg(target_os = "windows")]
+    fn get_raw_handle(&self) -> windows::Win32::Foundation::HWND {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        if let Ok(handle) = self.window().window_handle() {
+            if let RawWindowHandle::Win32(win32_handle) = handle.as_raw() {
+                return windows::Win32::Foundation::HWND(win32_handle.hwnd.get() as *mut _);
+            }
+        }
+        windows::Win32::Foundation::HWND(std::ptr::null_mut())
+    }
 }
 
 impl raw_window_handle::HasDisplayHandle for CrossWindow {

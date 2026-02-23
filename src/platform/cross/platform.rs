@@ -154,13 +154,19 @@ impl Platform for CrossPlatform {
         let window = CrossWindow::new(self.wgpu_context.clone());
 
         let success = with_active_context(|event_loop, app_state| {
-            let attributes = winit::window::Window::default_attributes().with_title(
-                options
-                    .titlebar
-                    .and_then(|t| t.title)
-                    .map(|t| t.to_string())
-                    .unwrap_or_else(|| "GPUI".into()),
-            );
+            let bounds = options.bounds;
+            let attributes = winit::window::Window::default_attributes()
+                .with_title(
+                    options
+                        .titlebar
+                        .and_then(|t| t.title)
+                        .map(|t| t.to_string())
+                        .unwrap_or_else(|| "GPUI".into()),
+                )
+                .with_inner_size(winit::dpi::LogicalSize::new(
+                    bounds.size.width.0 as f64,
+                    bounds.size.height.0 as f64,
+                ));
 
             let winit_window = event_loop
                 .create_window(attributes)
@@ -272,6 +278,7 @@ impl Platform for CrossPlatform {
         false
     }
 
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     fn write_to_primary(&self, _item: crate::ClipboardItem) {
         log::warn!("write_to_primary is not yet implemented on this platform");
     }
@@ -280,6 +287,7 @@ impl Platform for CrossPlatform {
         log::warn!("write_to_clipboard is not yet implemented on this platform");
     }
 
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     fn read_from_primary(&self) -> Option<crate::ClipboardItem> {
         None
     }
@@ -417,17 +425,17 @@ impl winit::application::ApplicationHandler<CrossEvent> for AppState {
                     return;
                 }
 
+                let scale_factor = window.scale_factor();
+
                 if let Some(renderer) = window.0.renderer.get() {
                     renderer.borrow_mut().update_drawable_size(Size {
                         width: DevicePixels(physical_size.width as i32),
                         height: DevicePixels(physical_size.height as i32),
                     });
                 }
-
-                let scale_factor = window.scale_factor();
                 let size = crate::Size {
-                    width: crate::Pixels(physical_size.width as f32),
-                    height: crate::Pixels(physical_size.height as f32),
+                    width: crate::Pixels(physical_size.width as f32 / scale_factor),
+                    height: crate::Pixels(physical_size.height as f32 / scale_factor),
                 };
 
                 window

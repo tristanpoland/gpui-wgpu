@@ -499,7 +499,7 @@ pub(crate) trait PlatformWindow: HasWindowHandle + HasDisplayHandle {
     fn set_tabbing_identifier(&self, _identifier: Option<String>) {}
 
     #[cfg(target_os = "windows")]
-    fn get_raw_handle(&self) -> windows::HWND;
+    fn get_raw_handle(&self) -> windows::Win32::Foundation::HWND;
 
     // Linux specific methods
     fn inner_window_bounds(&self) -> WindowBounds {
