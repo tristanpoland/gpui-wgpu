@@ -38,16 +38,6 @@ struct SurfaceExample {
 
 impl Render for SurfaceExample {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // periodically refresh display_fps only once per second
-        let now = std::time::Instant::now();
-        if now.duration_since(self.last_notify) >= std::time::Duration::from_secs(1) {
-            self.last_notify = now;
-            if let Ok(val) = self.fps.lock() {
-                self.display_fps = *val;
-            }
-            // request another paint a second later
-            cx.notify();
-        }
         // The surface element will display the front buffer
         // Overlay a debug border and label for visibility
         div()
@@ -87,7 +77,7 @@ fn main() {
             let surface_thread = surface.clone();
             let fps_data: Arc<Mutex<f64>> = Arc::new(Mutex::new(0.0));
 
-            // Spawn a secondary render thread
+            // secondary render thread
             let fps_shared = fps_data.clone();
             thread::spawn(move || {
                 let mut frame: u32 = 0;
@@ -413,7 +403,23 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
                 }
             });
 
-            cx.new(|_cx| SurfaceExample { surface, fps: fps_data.clone(), display_fps: 0.0, last_notify: std::time::Instant::now() })
+            cx.new(|cx| {
+                let entity = SurfaceExample { surface, fps: fps_data.clone(), display_fps: 0.0, last_notify: std::time::Instant::now() };
+                // spawn timer task tied to this entity
+                cx.spawn(async move |this, cx| {
+                    loop {
+                        cx.background_executor().timer(std::time::Duration::from_secs(1)).await;
+                        this.update(cx, |this: &mut SurfaceExample, cx| {
+                            if let Ok(val) = this.fps.lock() {
+                                this.display_fps = *val;
+                            }
+                            cx.notify();
+                        }).ok();
+                    }
+                })
+                .detach();
+                entity
+            })
         });
     });
 }
