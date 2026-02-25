@@ -128,6 +128,20 @@ impl WgpuSurfaceHandle {
         *self.inner.size.lock().unwrap()
     }
 
+    /// Returns `true` while the compositor still has an unconsumed frame.
+    pub fn is_present_pending(&self) -> bool {
+        self.inner
+            .registry
+            .is_present_pending(self.inner.surface_id)
+    }
+
+    /// Block until the pending flag clears, yielding the thread.
+    pub fn wait_for_present(&self) {
+        while self.is_present_pending() {
+            std::thread::sleep(std::time::Duration::from_micros(50));
+        }
+    }
+
     /// The texture format used by this surface's buffers.
     pub fn format(&self) -> wgpu::TextureFormat {
         self.inner.format

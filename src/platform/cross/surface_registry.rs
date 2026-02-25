@@ -142,6 +142,15 @@ impl SurfaceRegistry {
         }
     }
 
+    /// Query whether a present is still pending (not yet consumed).
+    pub fn is_present_pending(&self, id: SurfaceId) -> bool {
+        if let Some(db) = self.surfaces.lock().unwrap().get(&id) {
+            db.present_pending.load(std::sync::atomic::Ordering::Relaxed)
+        } else {
+            false
+        }
+    }
+
     /// Clear the pending flag, normally invoked when the renderer consumes
     /// the next frame (in `paint_wgpu_surface`).
     pub fn clear_present_pending(&self, id: SurfaceId) {

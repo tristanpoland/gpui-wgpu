@@ -1213,12 +1213,34 @@ impl WgpuRenderer {
             surface_capabilities.alpha_modes[0]
         };
 
+        // allow overriding vsync behaviour.  The default is `Fifo` (vsync
+        // enabled) which is what `wgpu` considers the safest presentation mode.
+        // Setting `GPUI_DISABLE_VSYNC=1` in the environment will switch to
+        // `Immediate`, which drops frames at the display's full rate.  A more
+        // fine‑grained control (`GPUI_PRESENT_MODE=mailbox|fifo|immediate`) is
+        // also supported for experimentation.
+        let present_mode = std::env::var("GPUI_PRESENT_MODE")
+            .ok()
+            .and_then(|s| match s.to_lowercase().as_str() {
+                "mailbox" => Some(wgpu::PresentMode::Mailbox),
+                "immediate" => Some(wgpu::PresentMode::Immediate),
+                "fifo" => Some(wgpu::PresentMode::Fifo),
+                _ => None,
+            })
+            .unwrap_or_else(|| {
+                if std::env::var("GPUI_DISABLE_VSYNC").is_ok() {
+                    wgpu::PresentMode::Immediate
+                } else {
+                    wgpu::PresentMode::Fifo
+                }
+            });
+
         let surface_configuration = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
             width,
             height,
-            present_mode: wgpu::PresentMode::Fifo,
+            present_mode,
             alpha_mode,
             view_formats: vec![],
             // TODO(mdeand): Make this configurable?

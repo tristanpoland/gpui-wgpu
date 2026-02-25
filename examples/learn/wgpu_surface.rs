@@ -65,6 +65,8 @@ fn main() {
                 // high‑performance render loop without sleeps or per‑frame printouts
                 let mut last = std::time::Instant::now();
                 loop {
+                    // throttle producer: wait until the compositor consumes last frame.
+                    surface_thread.wait_for_present();
                     // draw to back buffer
                     let device = surface_thread.device();
                     let queue = surface_thread.queue();
