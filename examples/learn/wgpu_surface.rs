@@ -26,6 +26,7 @@ struct CubeResources {
     bind_group: wgpu::BindGroup,
     vert_buf: wgpu::Buffer,
     vertex_count: u32,
+    depth_view: wgpu::TextureView,
 }
 
 struct SurfaceExample {
@@ -107,7 +108,7 @@ fn main() {
                     }
 
                     let t = frame as f32 * 0.01;
-                    let (pipeline, uniform_buf, bind_group, vert_buf, vertex_count) =
+                    let (pipeline, uniform_buf, bind_group, vert_buf, vertex_count, depth_view) =
                         RESOURCES.with(|r| {
                             let mut r = r.borrow_mut();
                             if r.is_none() {
@@ -241,7 +242,13 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
                                             topology: wgpu::PrimitiveTopology::TriangleList,
                                             ..Default::default()
                                         },
-                                        depth_stencil: None,
+                                        depth_stencil: Some(wgpu::DepthStencilState {
+                                            format: wgpu::TextureFormat::Depth24Plus,
+                                            depth_write_enabled: true,
+                                            depth_compare: wgpu::CompareFunction::Less,
+                                            stencil: wgpu::StencilState::default(),
+                                            bias: wgpu::DepthBiasState::default(),
+                                        }),
                                         multisample: wgpu::MultisampleState::default(),
                                         multiview: None,
                                         cache: None,
@@ -292,6 +299,19 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
                                 });
                                 let vertex_count = vertices.len() as u32;
 
+                                // depth texture for 3D ordering
+                                let depth_tex = device.create_texture(&wgpu::TextureDescriptor {
+                                    label: Some("CubeDepth"),
+                                    size: wgpu::Extent3d { width: 400, height: 300, depth_or_array_layers: 1 },
+                                    mip_level_count: 1,
+                                    sample_count: 1,
+                                    dimension: wgpu::TextureDimension::D2,
+                                    format: wgpu::TextureFormat::Depth24Plus,
+                                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                                    view_formats: &[],
+                                });
+                                let depth_view = depth_tex.create_view(&wgpu::TextureViewDescriptor::default());
+
                                 let uniform_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor{
                                     label: Some("CubeUniformBuf"),
                                     contents: bytemuck::cast_slice(&[0f32]),
@@ -312,10 +332,11 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
                                     bind_group: bind_group.clone(),
                                     vert_buf: vertex_buf.clone(),
                                     vertex_count,
+                                    depth_view,
                                 });
                             }
                             let res = r.as_ref().unwrap();
-                            (res.pipeline.clone(), res.uniform_buf.clone(), res.bind_group.clone(), res.vert_buf.clone(), res.vertex_count)
+                            (res.pipeline.clone(), res.uniform_buf.clone(), res.bind_group.clone(), res.vert_buf.clone(), res.vertex_count, res.depth_view.clone())
                         });
 
                     queue.write_buffer(&uniform_buf, 0, bytemuck::cast_slice(&[t]));
@@ -334,7 +355,14 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
                                     store: wgpu::StoreOp::Store,
                                 },
                             })],
-                            depth_stencil_attachment: None,
+                            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment{
+                                view: &depth_view,
+                                depth_ops: Some(wgpu::Operations{
+                                    load: wgpu::LoadOp::Clear(1.0),
+                                    store: wgpu::StoreOp::Store,
+                                }),
+                                stencil_ops: None,
+                            }),
                             occlusion_query_set: None,
                             timestamp_writes: None,
                         });
@@ -344,7 +372,6 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
                         rpass.draw(0..vertex_count, 0..1);
                     }
                     let _ = queue.submit(Some(encoder.finish()));
-
                     surface_thread.present();
                     frame = frame.wrapping_add(1);
 
