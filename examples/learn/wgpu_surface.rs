@@ -68,7 +68,7 @@ fn main() {
         // Open a window
         _ = cx.open_window(WindowOptions::default(), |window: &mut Window, cx: &mut App| {
             // Create a WgpuSurfaceHandle (400x300 RGBA8)
-            let surface = window.create_wgpu_surface(400, 300, wgpu::TextureFormat::Rgba8UnormSrgb)
+            let surface = window.create_wgpu_surface(1720, 1080, wgpu::TextureFormat::Rgba8UnormSrgb)
                 .expect("WgpuSurface not supported on this platform");
             let surface_thread = surface.clone();
 
