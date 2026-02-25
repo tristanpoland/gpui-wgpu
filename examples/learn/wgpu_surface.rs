@@ -403,23 +403,28 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
                 }
             });
 
-            cx.new(|cx| {
-                let entity = SurfaceExample { surface, fps: fps_data.clone(), display_fps: 0.0, last_notify: std::time::Instant::now() };
-                // spawn timer task tied to this entity
-                cx.spawn(async move |this, cx| {
-                    loop {
-                        cx.background_executor().timer(std::time::Duration::from_secs(1)).await;
-                        this.update(cx, |this: &mut SurfaceExample, cx| {
-                            if let Ok(val) = this.fps.lock() {
-                                this.display_fps = *val;
-                            }
+            // construct entity and keep handle in outer scope
+            let handle = cx.new(|_cx| SurfaceExample { surface, fps: fps_data.clone(), display_fps: 0.0, last_notify: std::time::Instant::now() });
+            // spawn a timer task in the foreground (no `Send` bound required)
+            let bg_fps = fps_data.clone();
+            let handle_clone = handle.clone();
+            cx.spawn(async move |async_app| {
+                let h = handle_clone; // move into closure
+                loop {
+                    async_app
+                        .background_executor()
+                        .timer(std::time::Duration::from_secs(1))
+                        .await;
+                    let fps_val = { *bg_fps.lock().unwrap() };
+                    async_app
+                        .update_entity(&h, move |this, cx| {
+                            this.display_fps = fps_val;
                             cx.notify();
-                        }).ok();
-                    }
-                })
-                .detach();
-                entity
-            })
+                        })
+                        .ok();
+                }
+            });
+            handle
         });
     });
 }
