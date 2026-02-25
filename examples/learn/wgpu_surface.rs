@@ -62,9 +62,10 @@ fn main() {
                     }
                     thread::sleep(Duration::from_millis(10));
                 }
+                // high‑performance render loop without sleeps or per‑frame printouts
+                let mut last = std::time::Instant::now();
                 loop {
-                    println!("[wgpu_surface] Render thread running, frame {}", frame);
-                    // Draw to the back buffer using wgpu
+                    // draw to back buffer
                     let device = surface_thread.device();
                     let queue = surface_thread.queue();
                     let view = surface_thread.back_buffer_view();
@@ -72,15 +73,13 @@ fn main() {
                         Some(v) => v,
                         None => {
                             frame = frame.wrapping_add(1);
-                            thread::sleep(Duration::from_millis(16));
+                            thread::sleep(Duration::from_nanos(500));
                             continue;
                         }
                     };
 
-
                     // --- GPU gradient: fullscreen triangle with animated rainbow gradient ---
                     use wgpu::util::DeviceExt;
-                    // Static pipeline cache for the thread
                     thread_local! {
                         static PIPELINE: std::cell::RefCell<Option<wgpu::RenderPipeline>> = std::cell::RefCell::new(None);
                         static BIND_GROUP_LAYOUT: std::cell::RefCell<Option<wgpu::BindGroupLayout>> = std::cell::RefCell::new(None);
@@ -88,16 +87,13 @@ fn main() {
                         static BIND_GROUP: std::cell::RefCell<Option<wgpu::BindGroup>> = std::cell::RefCell::new(None);
                     }
 
-                    // Uniform: time
                     let t = frame as f32 * 0.01;
                     let t_arr = [t];
                     let uniform_bytes = bytemuck::cast_slice(&t_arr);
 
-                    // Create pipeline and bind_group_layout if needed, and get both as locals
                     let (pipeline, bind_group_layout) = PIPELINE.with(|p| {
                         let mut p = p.borrow_mut();
                         if p.is_none() {
-                            // Shader: fullscreen triangle, rainbow gradient
                             let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
                                 label: Some("GradientShader"),
                                 source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(r#"
@@ -203,7 +199,6 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
                             (pipeline, bind_group_layout)
                         }
                     });
-                    // Uniform buffer
                     let uniform_buf = UNIFORM_BUF.with(|u| {
                         let mut u = u.borrow_mut();
                         if u.is_none() {
@@ -255,12 +250,16 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
                     }
                     let _ = queue.submit(Some(encoder.finish()));
 
-
-                    // Swap buffers and request present
                     surface_thread.present();
-
                     frame = frame.wrapping_add(1);
-                    thread::sleep(Duration::from_millis(16)); // ~60 FPS
+
+                    if frame % 1000 == 0 {
+                        let now = std::time::Instant::now();
+                        let elapsed = now.duration_since(last).as_secs_f64();
+                        let fps = 1000.0 / elapsed;
+                        println!("[wgpu_surface] {} frames in {:.3}s = {:.1} FPS", 1000, elapsed, fps);
+                        last = now;
+                    }
                 }
             });
 
