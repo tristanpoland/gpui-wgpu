@@ -37,8 +37,8 @@ impl Render for SurfaceExample {
         // The surface element will display the front buffer
         // Overlay a debug border and label for visibility
         div()
-            .w(gpui::px(400.0))
-            .h(gpui::px(300.0))
+            .w(gpui::px(1720.0))
+            .h(gpui::px(1080.0))
             .border_4()
             .border_color(rgb(0xff00ff))
             .rounded_lg()
@@ -90,9 +90,10 @@ fn main() {
                     // draw to back buffer
                     let device = surface_thread.device();
                     let queue = surface_thread.queue();
-                    let view = surface_thread.back_buffer_view();
-                    let view = match &view {
-                        Some(v) => v,
+                    // atomically grab view and its current size to avoid races on
+                    // concurrent resizes (see handle.back_view_with_size doc comment).
+                    let (view, (dw, dh)) = match surface_thread.back_view_with_size() {
+                        Some(tuple) => tuple,
                         None => {
                             frame = frame.wrapping_add(1);
                             thread::sleep(Duration::from_nanos(500));
@@ -339,8 +340,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
 
                     queue.write_buffer(&uniform_buf, 0, bytemuck::cast_slice(&[t]));
 
-                    // recreate depth texture/view each frame to match current back-buffer size
-                    let (dw, dh) = surface_thread.size();
+                    // depth texture/view sized to match the returned view dimensions
                     let depth_tex = device.create_texture(&wgpu::TextureDescriptor {
                         label: Some("CubeDepth"),
                         size: wgpu::Extent3d { width: dw, height: dh, depth_or_array_layers: 1 },

@@ -94,6 +94,15 @@ impl WgpuSurfaceHandle {
         self.inner.registry.back_view(self.inner.surface_id)
     }
 
+    /// Atomically obtain the back buffer view _and_ its pixel dimensions.
+    /// This avoids races where the surface is resized between separate calls
+    /// to `back_buffer_view` and `.size()`.
+    pub fn back_view_with_size(&self) -> Option<(wgpu::TextureView, (u32, u32))> {
+        self.inner
+            .registry
+            .lock_and_get_back_with_size(self.inner.surface_id)
+    }
+
     /// Swap front and back buffers (GPU pointer swap, zero copy).
     /// After this, the content you rendered into the back buffer becomes the
     /// front buffer that the renderer will composite.

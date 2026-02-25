@@ -98,6 +98,20 @@ impl SurfaceRegistry {
         })
     }
 
+    /// Atomically retrieve both the back view and the corresponding texture
+    /// dimensions. This is useful when a caller needs to create auxiliary
+    /// resources (e.g. a depth buffer) that must exactly match the view's size.
+    pub fn lock_and_get_back_with_size(
+        &self,
+        id: SurfaceId,
+    ) -> Option<(wgpu::TextureView, (u32, u32))> {
+        let surfaces = self.surfaces.lock().unwrap();
+        surfaces.get(&id).map(|db| {
+            let back = 1 - db.front;
+            (db.views[back].clone(), (db.width, db.height))
+        })
+    }
+
     /// Get the current front buffer index (0 or 1).
     pub fn front_index(&self, id: SurfaceId) -> Option<usize> {
         let surfaces = self.surfaces.lock().unwrap();
