@@ -1564,6 +1564,9 @@ impl WgpuRenderer {
                                 if let Some(front_view) =
                                     self.context.surface_registry.front_view(*surface_id)
                                 {
+                                    // consuming the front view means the frame has been
+                                    // queued for compositing, so clear the pending flag
+                                    self.context.surface_registry.clear_present_pending(*surface_id);
                                     let params = SurfaceParams {
                                         bounds: Bounds {
                                             origin: [

@@ -98,7 +98,15 @@ impl WgpuSurfaceHandle {
     /// Convenience: swap buffers and immediately request a present.
     pub fn present(&self) {
         self.swap_buffers();
-        self.request_present();
+        // coalesce events by setting the pending flag; only send if there
+        // was not one outstanding already.
+        if !self
+            .inner
+            .registry
+            .set_present_pending(self.inner.surface_id)
+        {
+            self.request_present();
+        }
     }
 
     /// Current size in device pixels.

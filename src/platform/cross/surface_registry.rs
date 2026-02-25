@@ -14,6 +14,10 @@ struct DoubleBuffer {
     width: u32,
     height: u32,
     format: wgpu::TextureFormat,
+    // true when a present event has been fired but not yet consumed by
+    // the renderer.  We coalesce multiple calls to `present()` so the
+    // application doesn't flood the event loop at thousands of FPS.
+    present_pending: std::sync::atomic::AtomicBool,
 }
 
 /// Thread-safe registry of all active WGPU surfaces.
@@ -72,10 +76,9 @@ impl SurfaceRegistry {
 
     /// Get the front buffer's `TextureView` (what the renderer reads from).
     pub fn front_view(&self, id: SurfaceId) -> Option<wgpu::TextureView> {
+        // clone an already-created view instead of making a new one every frame.
         let surfaces = self.surfaces.lock().unwrap();
-        surfaces.get(&id).map(|db| {
-            db.textures[db.front].create_view(&wgpu::TextureViewDescriptor::default())
-        })
+        surfaces.get(&id).map(|db| db.views[db.front].clone())
     }
 
     /// Get the back buffer's `Texture` (what external code renders into).
@@ -91,7 +94,7 @@ impl SurfaceRegistry {
         let surfaces = self.surfaces.lock().unwrap();
         surfaces.get(&id).map(|db| {
             let back = 1 - db.front;
-            db.textures[back].create_view(&wgpu::TextureViewDescriptor::default())
+            db.views[back].clone()
         })
     }
 
@@ -112,6 +115,25 @@ impl SurfaceRegistry {
     /// Remove a surface from the registry.
     pub fn remove(&self, id: SurfaceId) {
         self.surfaces.lock().unwrap().remove(&id);
+    }
+
+    /// Set the "present pending" flag for a surface, returning previous value.
+    /// When `present()` is called by external code we use this to avoid
+    /// sending duplicate events while one is already queued.
+    pub fn set_present_pending(&self, id: SurfaceId) -> bool {
+        if let Some(db) = self.surfaces.lock().unwrap().get(&id) {
+            db.present_pending.swap(true, std::sync::atomic::Ordering::Relaxed)
+        } else {
+            false
+        }
+    }
+
+    /// Clear the pending flag, normally invoked when the renderer consumes
+    /// the next frame (in `paint_wgpu_surface`).
+    pub fn clear_present_pending(&self, id: SurfaceId) {
+        if let Some(db) = self.surfaces.lock().unwrap().get(&id) {
+            db.present_pending.store(false, std::sync::atomic::Ordering::Relaxed);
+        }
     }
 
     fn create_double_buffer(
@@ -153,6 +175,7 @@ impl SurfaceRegistry {
             width: w,
             height: h,
             format,
+            present_pending: std::sync::atomic::AtomicBool::new(false),
         }
     }
 }
