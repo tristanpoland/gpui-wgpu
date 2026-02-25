@@ -32,10 +32,22 @@ struct CubeResources {
 struct SurfaceExample {
     surface: WgpuSurfaceHandle,
     fps: std::sync::Arc<std::sync::Mutex<f64>>,
+    display_fps: f64,
+    last_notify: std::time::Instant,
 }
 
 impl Render for SurfaceExample {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // periodically refresh display_fps only once per second
+        let now = std::time::Instant::now();
+        if now.duration_since(self.last_notify) >= std::time::Duration::from_secs(1) {
+            self.last_notify = now;
+            if let Ok(val) = self.fps.lock() {
+                self.display_fps = *val;
+            }
+            // request another paint a second later
+            cx.notify();
+        }
         // The surface element will display the front buffer
         // Overlay a debug border and label for visibility
         div()
@@ -60,7 +72,7 @@ impl Render for SurfaceExample {
                     .left(gpui::px(8.0))
                     .text_color(rgb(0xff00ff))
                     .text_xl()
-                    .child(format!("FPS: {:.1}", *self.fps.lock().unwrap()))
+                    .child(format!("FPS: {:.1}", self.display_fps))
             )
     }
 }
@@ -401,7 +413,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
                 }
             });
 
-            cx.new(|_cx| SurfaceExample { surface, fps: fps_data.clone() })
+            cx.new(|_cx| SurfaceExample { surface, fps: fps_data.clone(), display_fps: 0.0, last_notify: std::time::Instant::now() })
         });
     });
 }
