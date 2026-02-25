@@ -95,7 +95,8 @@ fn main() {
                     thread::sleep(Duration::from_millis(10));
                 }
                 // high‑performance render loop without sleeps or per‑frame printouts
-                let mut last = std::time::Instant::now();
+                let mut last_report = std::time::Instant::now();
+                let mut frame_count: u32 = 0;
                 loop {
                     // throttle producer: wait until the compositor consumes last frame.
                     surface_thread.wait_for_present();
@@ -398,14 +399,15 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
                     let _ = queue.submit(Some(encoder.finish()));                    surface_thread.present();
                     frame = frame.wrapping_add(1);
 
-                    // update fps each frame instead of batching
+                    // update frame counter and report once per second
+                    frame_count = frame_count.wrapping_add(1);
                     let now = std::time::Instant::now();
-                    let elapsed = now.duration_since(last).as_secs_f64();
-                    if elapsed > 0.0 {
-                        let fps = 1.0 / elapsed;
+                    if now.duration_since(last_report) >= Duration::from_secs(1) {
+                        let fps = frame_count as f64; // frames per second
                         *fps_shared.lock().unwrap() = fps;
+                        frame_count = 0;
+                        last_report = now;
                     }
-                    last = now;
                 }
             });
 
