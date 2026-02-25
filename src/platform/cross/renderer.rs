@@ -577,6 +577,7 @@ struct WgpuPipelines {
     sprites_bind_group_layout: wgpu::BindGroupLayout,
     mono_sprites_bind_group_layout: wgpu::BindGroupLayout,
     poly_sprites_bind_group_layout: wgpu::BindGroupLayout,
+    surfaces_bind_group_layout: wgpu::BindGroupLayout,
 
     globals_bind_group: wgpu::BindGroup,
     color_adjustments_bind_group: wgpu::BindGroup,
@@ -586,6 +587,7 @@ struct WgpuPipelines {
     underlines_pipeline: wgpu::RenderPipeline,
     mono_sprites_pipeline: wgpu::RenderPipeline,
     poly_sprites_pipeline: wgpu::RenderPipeline,
+    surfaces_pipeline: wgpu::RenderPipeline,
 }
 
 impl WgpuPipelines {
@@ -849,6 +851,63 @@ impl WgpuPipelines {
                     push_constant_ranges: &[],
                 });
 
+        let surfaces_shader =
+            context
+                .device
+                .create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("surfaces_shader"),
+                    source: wgpu::ShaderSource::Wgsl(
+                        include_str!("shaders/surfaces.wgsl").into(),
+                    ),
+                });
+
+        let surfaces_bind_group_layout =
+            context
+                .device
+                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some("surfaces_bind_group_layout"),
+                    entries: &[
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 0,
+                            visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                            ty: wgpu::BindingType::Buffer {
+                                ty: wgpu::BufferBindingType::Uniform,
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
+                        },
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 1,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Texture {
+                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                                view_dimension: wgpu::TextureViewDimension::D2,
+                                multisampled: false,
+                            },
+                            count: None,
+                        },
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 2,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                            count: None,
+                        },
+                    ],
+                });
+
+        let surfaces_pipeline_layout =
+            context
+                .device
+                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("surfaces_pipeline_layout"),
+                    bind_group_layouts: &[
+                        &globals_bind_group_layout,
+                        &surfaces_bind_group_layout,
+                    ],
+                    push_constant_ranges: &[],
+                });
+
         let globals_bind_group = context
             .device
             .create_bind_group(&wgpu::BindGroupDescriptor {
@@ -1027,6 +1086,35 @@ impl WgpuPipelines {
                     cache: None,
                 },
             ),
+
+            surfaces_bind_group_layout,
+
+            surfaces_pipeline: context.device.create_render_pipeline(
+                &wgpu::RenderPipelineDescriptor {
+                    label: Some("surfaces"),
+                    layout: Some(&surfaces_pipeline_layout),
+                    vertex: wgpu::VertexState {
+                        module: &surfaces_shader,
+                        entry_point: Some("vs_surface"),
+                        compilation_options: wgpu::PipelineCompilationOptions::default(),
+                        buffers: &[],
+                    },
+                    primitive: wgpu::PrimitiveState {
+                        topology: wgpu::PrimitiveTopology::TriangleStrip,
+                        ..Default::default()
+                    },
+                    depth_stencil: None,
+                    fragment: Some(wgpu::FragmentState {
+                        module: &surfaces_shader,
+                        entry_point: Some("fs_surface"),
+                        compilation_options: wgpu::PipelineCompilationOptions::default(),
+                        targets: color_targets,
+                    }),
+                    multisample: wgpu::MultisampleState::default(),
+                    multiview: None,
+                    cache: None,
+                },
+            ),
         }
     }
 }
@@ -1070,6 +1158,8 @@ pub struct WgpuRenderer {
     surface: wgpu::Surface<'static>,
     surface_configuration: wgpu::SurfaceConfiguration,
     atlas_sampler: wgpu::Sampler,
+    surface_sampler: wgpu::Sampler,
+    surface_params_buffer: wgpu::Buffer,
     atlas: Arc<WgpuAtlas>,
     pipelines: WgpuPipelines,
     rendering_parameters: RenderingParameters,
@@ -1136,6 +1226,20 @@ impl WgpuRenderer {
             ..Default::default()
         });
 
+        let surface_sampler = context.device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("surface_sampler"),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+
+        let surface_params_buffer = context.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Surface Params Buffer"),
+            size: std::mem::size_of::<SurfaceParams>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
         let pipelines =
             WgpuPipelines::new(context.as_ref(), &surface_configuration, path_sample_count);
 
@@ -1145,6 +1249,8 @@ impl WgpuRenderer {
             surface_configuration,
             atlas,
             atlas_sampler,
+            surface_sampler,
+            surface_params_buffer,
             pipelines,
             rendering_parameters: RenderingParameters::from_env(),
         })
@@ -1452,8 +1558,87 @@ impl WgpuRenderer {
                         );
                         underlines_first_instance += count;
                     }
-                    // TODO(mdeand): Implement paths and surfaces rendering.
-                    PrimitiveBatch::Paths(_) | PrimitiveBatch::Surfaces(_) => {}
+                    PrimitiveBatch::Surfaces(surfaces) => {
+                        for surface in surfaces {
+                            if let crate::SurfaceContent::Wgpu(surface_id) = &surface.content {
+                                if let Some(front_view) =
+                                    self.context.surface_registry.front_view(*surface_id)
+                                {
+                                    let params = SurfaceParams {
+                                        bounds: Bounds {
+                                            origin: [
+                                                surface.bounds.origin.x.0,
+                                                surface.bounds.origin.y.0,
+                                            ],
+                                            size: [
+                                                surface.bounds.size.width.0,
+                                                surface.bounds.size.height.0,
+                                            ],
+                                        },
+                                        content_mask: Bounds {
+                                            origin: [
+                                                surface.content_mask.bounds.origin.x.0,
+                                                surface.content_mask.bounds.origin.y.0,
+                                            ],
+                                            size: [
+                                                surface.content_mask.bounds.size.width.0,
+                                                surface.content_mask.bounds.size.height.0,
+                                            ],
+                                        },
+                                    };
+
+                                    self.context.queue.write_buffer(
+                                        &self.surface_params_buffer,
+                                        0,
+                                        bytemuck::bytes_of(&params),
+                                    );
+
+                                    let surface_bind_group = self
+                                        .context
+                                        .device
+                                        .create_bind_group(&wgpu::BindGroupDescriptor {
+                                            label: Some("surface_bind_group"),
+                                            layout: &self.pipelines.surfaces_bind_group_layout,
+                                            entries: &[
+                                                wgpu::BindGroupEntry {
+                                                    binding: 0,
+                                                    resource: wgpu::BindingResource::Buffer(
+                                                        wgpu::BufferBinding {
+                                                            buffer: &self.surface_params_buffer,
+                                                            offset: 0,
+                                                            size: None,
+                                                        },
+                                                    ),
+                                                },
+                                                wgpu::BindGroupEntry {
+                                                    binding: 1,
+                                                    resource: wgpu::BindingResource::TextureView(
+                                                        &front_view,
+                                                    ),
+                                                },
+                                                wgpu::BindGroupEntry {
+                                                    binding: 2,
+                                                    resource: wgpu::BindingResource::Sampler(
+                                                        &self.surface_sampler,
+                                                    ),
+                                                },
+                                            ],
+                                        });
+
+                                    pass.set_pipeline(&self.pipelines.surfaces_pipeline);
+                                    pass.set_bind_group(
+                                        0,
+                                        &self.pipelines.globals_bind_group,
+                                        &[],
+                                    );
+                                    pass.set_bind_group(1, &surface_bind_group, &[]);
+                                    pass.draw(0..4, 0..1);
+                                }
+                            }
+                        }
+                    }
+                    // TODO(mdeand): Implement paths rendering.
+                    PrimitiveBatch::Paths(_) => {}
                 }
             }
         }
