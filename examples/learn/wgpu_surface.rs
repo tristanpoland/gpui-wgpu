@@ -31,13 +31,19 @@ struct CubeResources {
 
 struct SurfaceExample {
     surface: WgpuSurfaceHandle,
-    fps: std::sync::Arc<std::sync::Mutex<f64>>,
+    fps_rx: std::sync::mpsc::Receiver<f64>,
     display_fps: f64,
-    last_notify: std::time::Instant,
 }
 
 impl Render for SurfaceExample {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // pull any pending fps samples from channel
+        while let Ok(f) = self.fps_rx.try_recv() {
+            self.display_fps = f;
+        }
+        // ensure we keep repainting (needed since updates arrive off-thread)
+        window.request_animation_frame();
+
         // The surface element will display the front buffer
         // Overlay a debug border and label for visibility
         div()
@@ -53,7 +59,6 @@ impl Render for SurfaceExample {
                 wgpu_surface(self.surface.clone())
                     .absolute()
                     .inset_0() // Fill parent div
-                    
             )
             .child(
                 div()
@@ -76,6 +81,7 @@ fn main() {
                 .expect("WgpuSurface not supported on this platform");
             let surface_thread = surface.clone();
             let fps_data: Arc<Mutex<f64>> = Arc::new(Mutex::new(0.0));
+            let (fps_tx, fps_rx) = std::sync::mpsc::channel::<f64>();
 
             // secondary render thread
             let fps_shared = fps_data.clone();
@@ -404,24 +410,15 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
             });
 
             // construct entity and keep handle in outer scope
-            let handle = cx.new(|_cx| SurfaceExample { surface, fps: fps_data.clone(), display_fps: 0.0, last_notify: std::time::Instant::now() });
-            // spawn a timer task in the foreground (no `Send` bound required)
-            let bg_fps = fps_data.clone();
-            let handle_clone = handle.clone();
-            cx.spawn(async move |async_app| {
-                let h = handle_clone; // move into closure
+            let handle = cx.new(|_cx| SurfaceExample { surface, fps_rx, display_fps: 0.0 });
+            // timer thread: wake once per second and push fps into channel
+            let fps_shared = fps_data.clone();
+            let tx_clone = fps_tx.clone();
+            thread::spawn(move || {
                 loop {
-                    async_app
-                        .background_executor()
-                        .timer(std::time::Duration::from_secs(1))
-                        .await;
-                    let fps_val = { *bg_fps.lock().unwrap() };
-                    async_app
-                        .update_entity(&h, move |this, cx| {
-                            this.display_fps = fps_val;
-                            cx.notify();
-                        })
-                        .ok();
+                    std::thread::sleep(Duration::from_secs(1));
+                    let val = *fps_shared.lock().unwrap();
+                    let _ = tx_clone.send(val);
                 }
             });
             handle
