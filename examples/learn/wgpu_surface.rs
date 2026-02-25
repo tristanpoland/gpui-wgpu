@@ -5,6 +5,7 @@ use gpui::{
 };
 use std::thread;
 use std::time::Duration;
+use std::sync::{Arc, Mutex};
 use gpui::Styled;
 use gpui::AppContext;
 
@@ -30,6 +31,7 @@ struct CubeResources {
 
 struct SurfaceExample {
     surface: WgpuSurfaceHandle,
+    fps: std::sync::Arc<std::sync::Mutex<f64>>,
 }
 
 impl Render for SurfaceExample {
@@ -58,7 +60,7 @@ impl Render for SurfaceExample {
                     .left(gpui::px(8.0))
                     .text_color(rgb(0xff00ff))
                     .text_xl()
-                    .child("[WgpuSurface Debug Overlay]")
+                    .child(format!("FPS: {:.1}", *self.fps.lock().unwrap()))
             )
     }
 }
@@ -71,8 +73,10 @@ fn main() {
             let surface = window.create_wgpu_surface(1720, 1080, wgpu::TextureFormat::Rgba8UnormSrgb)
                 .expect("WgpuSurface not supported on this platform");
             let surface_thread = surface.clone();
+            let fps_data: Arc<Mutex<f64>> = Arc::new(Mutex::new(0.0));
 
             // Spawn a secondary render thread
+            let fps_shared = fps_data.clone();
             thread::spawn(move || {
                 let mut frame: u32 = 0;
                 // Wait for surface to be ready
@@ -392,13 +396,14 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
                         let now = std::time::Instant::now();
                         let elapsed = now.duration_since(last).as_secs_f64();
                         let fps = report_every as f64 / elapsed;
-                        println!("[wgpu_surface] {} frames in {:.3}s = {:.1} FPS", report_every, elapsed, fps);
+                        // update shared fps value for UI overlay
+                        *fps_shared.lock().unwrap() = fps;
                         last = now;
                     }
                 }
             });
 
-            cx.new(|_cx| SurfaceExample { surface })
+            cx.new(|_cx| SurfaceExample { surface, fps: fps_data.clone() })
         });
     });
 }
