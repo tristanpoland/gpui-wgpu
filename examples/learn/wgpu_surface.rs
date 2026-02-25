@@ -26,7 +26,6 @@ struct CubeResources {
     bind_group: wgpu::BindGroup,
     vert_buf: wgpu::Buffer,
     vertex_count: u32,
-    depth_view: wgpu::TextureView,
 }
 
 struct SurfaceExample {
@@ -108,7 +107,7 @@ fn main() {
                     }
 
                     let t = frame as f32 * 0.01;
-                    let (pipeline, uniform_buf, bind_group, vert_buf, vertex_count, depth_view) =
+                    let (pipeline, uniform_buf, bind_group, vert_buf, vertex_count) =
                         RESOURCES.with(|r| {
                             let mut r = r.borrow_mut();
                             if r.is_none() {
@@ -332,14 +331,27 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
                                     bind_group: bind_group.clone(),
                                     vert_buf: vertex_buf.clone(),
                                     vertex_count,
-                                    depth_view,
                                 });
                             }
                             let res = r.as_ref().unwrap();
-                            (res.pipeline.clone(), res.uniform_buf.clone(), res.bind_group.clone(), res.vert_buf.clone(), res.vertex_count, res.depth_view.clone())
+                            (res.pipeline.clone(), res.uniform_buf.clone(), res.bind_group.clone(), res.vert_buf.clone(), res.vertex_count)
                         });
 
                     queue.write_buffer(&uniform_buf, 0, bytemuck::cast_slice(&[t]));
+
+                    // recreate depth texture/view each frame to match current back-buffer size
+                    let (dw, dh) = surface_thread.size();
+                    let depth_tex = device.create_texture(&wgpu::TextureDescriptor {
+                        label: Some("CubeDepth"),
+                        size: wgpu::Extent3d { width: dw, height: dh, depth_or_array_layers: 1 },
+                        mip_level_count: 1,
+                        sample_count: 1,
+                        dimension: wgpu::TextureDimension::D2,
+                        format: wgpu::TextureFormat::Depth24Plus,
+                        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                        view_formats: &[],
+                    });
+                    let depth_view = depth_tex.create_view(&wgpu::TextureViewDescriptor::default());
 
                     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor{
                         label: Some("SurfaceExample Encoder"),
@@ -371,8 +383,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
                         rpass.set_vertex_buffer(0, vert_buf.slice(..));
                         rpass.draw(0..vertex_count, 0..1);
                     }
-                    let _ = queue.submit(Some(encoder.finish()));
-                    surface_thread.present();
+                    let _ = queue.submit(Some(encoder.finish()));                    surface_thread.present();
                     frame = frame.wrapping_add(1);
 
                     let bench = std::env::var("GPUI_BENCHMARK").is_ok();
