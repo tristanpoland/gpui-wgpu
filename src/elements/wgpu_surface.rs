@@ -4,9 +4,8 @@ use refineable::Refineable as _;
 
 use crate::{
     App, Bounds, Element, ElementId, GlobalElementId, InspectorElementId, IntoElement, LayoutId,
-    Pixels, PaintSurface, Style, StyleRefinement, Styled, Window,
+    Pixels, Style, StyleRefinement, Styled, Window,
     platform::cross::surface_registry::{SurfaceId, SurfaceRegistry},
-    scene::SurfaceContent,
 };
 
 /// Inner state shared across clones of `WgpuSurfaceHandle`.
@@ -17,6 +16,10 @@ struct WgpuSurfaceHandleInner {
     device: wgpu::Device,
     queue: wgpu::Queue,
     present_trigger: Arc<dyn Fn() + Send + Sync>,
+    /// Optional direct handle to the winit window.  Having an `Arc` lets
+    /// us call `request_redraw()` from another thread without touching the
+    /// event bus.
+    winit_window: Option<Arc<winit::window::Window>>,
     size: Mutex<(u32, u32)>,
     format: wgpu::TextureFormat,
 }
@@ -49,6 +52,7 @@ impl WgpuSurfaceHandle {
         surface_id: SurfaceId,
         registry: Arc<SurfaceRegistry>,
         present_trigger: Arc<dyn Fn() + Send + Sync>,
+        winit_window: Option<Arc<winit::window::Window>>,
         width: u32,
         height: u32,
         format: wgpu::TextureFormat,
@@ -60,6 +64,7 @@ impl WgpuSurfaceHandle {
                 device,
                 queue,
                 present_trigger,
+                winit_window,
                 size: Mutex::new((width, height)),
                 format,
             }),
@@ -96,6 +101,11 @@ impl WgpuSurfaceHandle {
     }
 
     /// Convenience: swap buffers and immediately request a present.
+    ///
+    /// If the handle was created with a `CrossWindow` (default on WGPU
+    /// platforms), this method will call `window.request_redraw()` directly
+    /// from the render thread, sidestepping the `CrossEvent` event bus.  The
+    /// underlying queue is still coalesced to prevent flooding.
     pub fn present(&self) {
         self.swap_buffers();
         // coalesce events by setting the pending flag; only send if there
@@ -105,7 +115,11 @@ impl WgpuSurfaceHandle {
             .registry
             .set_present_pending(self.inner.surface_id)
         {
-            self.request_present();
+            if let Some(winit) = &self.inner.winit_window {
+                winit.request_redraw();
+            } else {
+                self.request_present();
+            }
         }
     }
 

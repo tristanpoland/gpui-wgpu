@@ -18,7 +18,7 @@ use winit::event_loop::EventLoopProxy;
 pub struct CrossWindow(pub(crate) Arc<CrossWindowInner>);
 
 pub(crate) struct CrossWindowInner {
-    pub(crate) winit_window: OnceCell<winit::window::Window>,
+    pub(crate) winit_window: OnceCell<Arc<winit::window::Window>>,
     pub(crate) renderer: OnceCell<RefCell<WgpuRenderer>>,
     pub(crate) wgpu_context: Arc<WgpuContext>,
     pub(crate) sprite_atlas: Arc<WgpuAtlas>,
@@ -84,7 +84,7 @@ impl CrossWindow {
 
         self.0
             .winit_window
-            .set(winit_window)
+            .set(Arc::new(winit_window))
             .expect("winit_window already initialized");
 
         if initial_size.width > 0 && initial_size.height > 0 {
@@ -104,7 +104,8 @@ impl CrossWindow {
     }
 
     pub(crate) fn window(&self) -> &winit::window::Window {
-        self.0
+        &*self
+            .0
             .winit_window
             .get()
             .expect("winit_window should be initialized")
@@ -341,19 +342,30 @@ impl PlatformWindow for CrossWindow {
         // Build the present trigger: sends a CrossEvent to wake the event loop
         // and request a redraw for this window.
         let proxy = self.0.event_loop_proxy.clone();
-        let window_id = self.0.winit_window.get().map(|w| w.id());
+        let window_id = self
+            .0
+            .winit_window
+            .get()
+            .map(|w| w.id());
         let present_trigger: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
             if let Some(wid) = window_id {
                 let _ = proxy.send_event(CrossEvent::SurfacePresent(wid));
             }
         });
 
+        // capture winit window Arc so handle can request redraw directly
+        let winit_arc = self
+            .0
+            .winit_window
+            .get()
+            .cloned();
         Some(WgpuSurfaceHandle::new(
             ctx.device.clone(),
             ctx.queue.clone(),
             surface_id,
             registry,
             present_trigger,
+            winit_arc,
             width,
             height,
             format,
