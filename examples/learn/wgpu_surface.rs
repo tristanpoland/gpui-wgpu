@@ -390,16 +390,14 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
                     let _ = queue.submit(Some(encoder.finish()));                    surface_thread.present();
                     frame = frame.wrapping_add(1);
 
-                    let bench = std::env::var("GPUI_BENCHMARK").is_ok();
-                    let report_every = if bench { 100 } else { 1000 };
-                    if frame % report_every == 0 {
-                        let now = std::time::Instant::now();
-                        let elapsed = now.duration_since(last).as_secs_f64();
-                        let fps = report_every as f64 / elapsed;
-                        // update shared fps value for UI overlay
+                    // update fps each frame instead of batching
+                    let now = std::time::Instant::now();
+                    let elapsed = now.duration_since(last).as_secs_f64();
+                    if elapsed > 0.0 {
+                        let fps = 1.0 / elapsed;
                         *fps_shared.lock().unwrap() = fps;
-                        last = now;
                     }
+                    last = now;
                 }
             });
 
