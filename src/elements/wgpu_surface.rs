@@ -46,6 +46,13 @@ pub struct WgpuSurfaceHandle {
 }
 
 impl WgpuSurfaceHandle {
+    /// Returns true when the GPUI_BENCHMARK environment variable is set.
+    /// In benchmark mode gpui bypasses the compositor entirely and
+    /// operations like `present()` become no-ops so the render thread can
+    /// drive the GPU at full speed.
+    fn benchmark_mode() -> bool {
+        std::env::var("GPUI_BENCHMARK").is_ok()
+    }
     pub(crate) fn new(
         device: wgpu::Device,
         queue: wgpu::Queue,
@@ -108,6 +115,11 @@ impl WgpuSurfaceHandle {
     /// underlying queue is still coalesced to prevent flooding.
     pub fn present(&self) {
         self.swap_buffers();
+        if Self::benchmark_mode() {
+            // do nothing, let producer run unrestricted
+            return;
+        }
+
         // coalesce events by setting the pending flag; only send if there
         // was not one outstanding already.
         if !self
@@ -137,6 +149,9 @@ impl WgpuSurfaceHandle {
 
     /// Block until the pending flag clears, yielding the thread.
     pub fn wait_for_present(&self) {
+        if Self::benchmark_mode() {
+            return;
+        }
         while self.is_present_pending() {
             std::thread::sleep(std::time::Duration::from_micros(50));
         }

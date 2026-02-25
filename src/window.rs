@@ -3302,15 +3302,17 @@ impl Window {
 
         self.invalidator.debug_assert_paint();
 
-        let scale_factor = self.scale_factor();
-        let bounds = bounds.scale(scale_factor);
-        let content_mask = self.content_mask().scale(scale_factor);
-        self.next_frame.scene.insert_primitive(PaintSurface {
-            order: 0,
-            bounds,
-            content_mask,
-            content: SurfaceContent::Wgpu(surface_id),
-        });
+        if !std::env::var("GPUI_BENCHMARK").is_ok() {
+            let scale_factor = self.scale_factor();
+            let bounds = bounds.scale(scale_factor);
+            let content_mask = self.content_mask().scale(scale_factor);
+            self.next_frame.scene.insert_primitive(PaintSurface {
+                order: 0,
+                bounds,
+                content_mask,
+                content: SurfaceContent::Wgpu(surface_id),
+            });
+        }
     }
 
     /// Create a double-buffered WGPU surface handle for external GPU rendering.
