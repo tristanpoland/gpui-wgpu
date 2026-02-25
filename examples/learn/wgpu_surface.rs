@@ -255,11 +255,13 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
                     surface_thread.present();
                     frame = frame.wrapping_add(1);
 
-                    if frame % 1000 == 0 {
+                    let bench = std::env::var("GPUI_BENCHMARK").is_ok();
+                    let report_every = if bench { 100 } else { 1000 };
+                    if frame % report_every == 0 {
                         let now = std::time::Instant::now();
                         let elapsed = now.duration_since(last).as_secs_f64();
-                        let fps = 1000.0 / elapsed;
-                        println!("[wgpu_surface] {} frames in {:.3}s = {:.1} FPS", 1000, elapsed, fps);
+                        let fps = report_every as f64 / elapsed;
+                        println!("[wgpu_surface] {} frames in {:.3}s = {:.1} FPS", report_every, elapsed, fps);
                         last = now;
                     }
                 }
