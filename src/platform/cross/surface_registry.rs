@@ -98,6 +98,20 @@ impl SurfaceRegistry {
         })
     }
 
+    /// Get the current front buffer index (0 or 1).
+    pub fn front_index(&self, id: SurfaceId) -> Option<usize> {
+        let surfaces = self.surfaces.lock().unwrap();
+        surfaces.get(&id).map(|db| db.front)
+    }
+
+    /// Access the view at the given index (0 or 1).
+    pub fn view_at(&self, id: SurfaceId, idx: usize) -> Option<wgpu::TextureView> {
+        let surfaces = self.surfaces.lock().unwrap();
+        surfaces
+            .get(&id)
+            .and_then(|db| db.views.get(idx).cloned())
+    }
+
     /// Get the current size of a surface.
     #[allow(dead_code)]
     pub fn size(&self, id: SurfaceId) -> Option<(u32, u32)> {
